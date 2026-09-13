@@ -1,0 +1,6 @@
+{
+  "image": "test2.jpg",
+  "count": null,
+  "confidence": "unknown",
+  "notes": "密菌落无可靠人工真值；评估侧重策略间对比与目视，不以经典默认计数为 GT"
+}

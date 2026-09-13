@@ -3,6 +3,13 @@ import cv2
 import numpy as np
 from typing import Tuple, Optional, Dict, Any, List
 
+from backend.core.blobcount import (
+    count_from_labels,
+    count_from_peaks,
+    draw_details_on_image,
+    watershed_labels,
+)
+
 
 def detect_petri_dish_circle(image: np.ndarray) -> Optional[Tuple[int, int, int]]:
     """
@@ -81,61 +88,6 @@ def detect_petri_dish_circle(image: np.ndarray) -> Optional[Tuple[int, int, int]
     except Exception as e:
         print(f"培养皿检测失败: {e}")
         return None
-
-
-def _apply_watershed(binary_img: np.ndarray, morph_kernel_size: int) -> np.ndarray:
-    """
-    分水岭算法分离粘连菌落
-    :param binary_img: 二值化图像 (白色=前景)
-    :param morph_kernel_size: 形态学核大小
-    :return: 分离后的二值图像
-    """
-    kernel = np.ones((morph_kernel_size, morph_kernel_size), np.uint8)
-
-    # 形态学开运算去除噪点
-    opening = cv2.morphologyEx(binary_img, cv2.MORPH_OPEN, kernel, iterations=2)
-
-    # 确定背景区域（膨胀）
-    sure_bg = cv2.dilate(opening, kernel, iterations=3)
-
-    # 确定前景区域（距离变换 + 阈值）
-    dist_transform = cv2.distanceTransform(opening, cv2.DIST_L2, 5)
-    ret, sure_fg = cv2.threshold(dist_transform, 0.4 * dist_transform.max(), 255, 0)
-    sure_fg = np.uint8(sure_fg)
-
-    # 未知区域
-    unknown = cv2.subtract(sure_bg, sure_fg)
-
-    # 连通组件标记
-    ret, markers = cv2.connectedComponents(sure_fg)
-
-    # 标记 +1（0 保留给分水岭边界）
-    markers = markers + 1
-
-    # 未知区域标记为 0
-    markers[unknown == 255] = 0
-
-    # 创建3通道图像用于 watershed
-    binary_3ch = cv2.cvtColor(binary_img, cv2.COLOR_GRAY2BGR)
-    markers = cv2.watershed(binary_3ch, markers)
-
-    # 从 watershed 结果重建分离后的二值图像
-    # 将边界（-1）设为0，各区域设为255，产生分离效果
-    labels = markers.copy()
-    labels[labels == -1] = 0   # watershed 边界
-    labels[labels == 1] = 0    # 背景
-
-    separated = np.zeros_like(binary_img)
-
-    for label_id in range(2, labels.max() + 1):
-        region = (labels == label_id).astype(np.uint8) * 255
-        # 对每个独立区域找外部轮廓并绘制（填充），实现分离
-        cnts, _ = cv2.findContours(region, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-        for cnt in cnts:
-            if cv2.contourArea(cnt) > 5:
-                cv2.drawContours(separated, [cnt], -1, 255, -1)
-
-    return separated
 
 
 def _split_large_blob(cnt: np.ndarray, min_area: int, morph_kernel_size: int) -> list:
@@ -217,7 +169,10 @@ def process_image(
     detect_petri_dish: bool = False,
     manual_roi: Optional[Tuple] = None,  # (x, y, w, h) rect or (cx, cy, r) circle
     use_watershed: bool = False,
-    min_circularity: float = 0.0
+    min_circularity: float = 0.0,
+    segment_mode: Optional[str] = None,  # None/auto | classic | labels | peaks
+    seed_kernel: int = 11,
+    min_dist_value: float = 1.8,
 ) -> Dict[str, Any]:
     """
     核心图像处理函数
@@ -235,6 +190,8 @@ def process_image(
     :param manual_roi: 手动选择区域
     :param use_watershed: 是否使用分水岭算法分离粘连菌落
     :param min_circularity: 最小圆度 (0-1, 0=不过滤, 越接近1越圆)
+    :param segment_mode: 分割模式 classic/labels/peaks；None 或 auto 时由 use_watershed 决定
+    :param seed_kernel: 分水岭/峰值种子邻域核（奇数）
     :return: 结果字典
     """
     try:
@@ -260,7 +217,8 @@ def process_image(
             "error": None,
             "scale_ratio": scale_ratio,
             "original_size": (original_width, original_height),
-            "colony_details": []
+            "colony_details": [],
+            "segment_mode": None,
         }
 
         # ── 缩放自适应参数 ──
@@ -337,11 +295,56 @@ def process_image(
 
         result["binary_image"] = thresh.copy()
 
-        # ── 4. 分水岭分离粘连菌落（可选）──
-        if use_watershed:
-            thresh = _apply_watershed(thresh, morph_kernel_size)
-            result["binary_image"] = thresh.copy()
+        # ── 分割模式解析 ──
+        mode = (segment_mode or "auto").lower()
+        if mode == "auto":
+            mode = "labels" if use_watershed else "classic"
+        result["segment_mode"] = mode
 
+        # ── peaks：距离变换局部极大计数 ──
+        if mode == "peaks":
+            peak_res = count_from_peaks(
+                thresh,
+                seed_kernel=seed_kernel,
+                min_area=min_area,
+                petri_circle=petri_mask,
+                min_distance_from_edge=min_distance_from_edge,
+                min_dist_value=min_dist_value,
+            )
+            result["count"] = peak_res["count"]
+            result["colony_details"] = peak_res["colony_details"]
+            result["processed_image"] = draw_details_on_image(
+                output_image, peak_res["colony_details"], petri_mask
+            )
+            return result
+
+        # ── labels：分水岭标签直计数（修复旧重建路径丢小菌落问题）──
+        if mode == "labels":
+            sk = seed_kernel if scale_ratio == 1.0 else max(5, int(seed_kernel * scale_ratio))
+            if sk % 2 == 0:
+                sk += 1
+            mdv = min_dist_value if scale_ratio == 1.0 else max(1.0, min_dist_value * scale_ratio)
+            labels = watershed_labels(
+                thresh, seed_kernel=sk, min_dist_value=mdv, open_iterations=1
+            )
+            result["binary_image"] = (labels > 0).astype(np.uint8) * 255
+            label_res = count_from_labels(
+                labels,
+                min_area=min_area,
+                max_area=max_area,
+                min_circularity=min_circularity,
+                petri_circle=petri_mask,
+                min_distance_from_edge=min_distance_from_edge,
+                image_size=(width, height),
+            )
+            result["count"] = label_res["count"]
+            result["colony_details"] = label_res["colony_details"]
+            result["processed_image"] = draw_details_on_image(
+                output_image, label_res["colony_details"], petri_mask
+            )
+            return result
+
+        # ── classic：原有轮廓路径 ──
         # ── 5. 轮廓检测 ──
         contours, _ = cv2.findContours(thresh, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
 
@@ -392,12 +395,11 @@ def process_image(
 
                 # ── 圆度过滤 ──
                 circularity = 0.0
-                if min_circularity > 0:
-                    perimeter = cv2.arcLength(candidate, True)
-                    if perimeter > 0:
-                        circularity = 4 * np.pi * c_area / (perimeter * perimeter)
-                    if circularity < min_circularity:
-                        continue
+                perimeter = cv2.arcLength(candidate, True)
+                if perimeter > 0:
+                    circularity = 4 * np.pi * c_area / (perimeter * perimeter)
+                if min_circularity > 0 and circularity < min_circularity:
+                    continue
 
                 # ── 通过所有过滤，计入结果 ──
                 colony_count += 1
@@ -415,7 +417,7 @@ def process_image(
                         "x": int(cX),
                         "y": int(cY),
                         "area": int(c_area),
-                        "circularity": round(float(circularity), 4) if min_circularity > 0 else None
+                        "circularity": round(float(circularity), 4)
                     })
 
         result["processed_image"] = output_image
@@ -434,5 +436,6 @@ def process_image(
             "error": str(e),
             "scale_ratio": 1.0,
             "original_size": (image.shape[1], image.shape[0]),
-            "colony_details": []
+            "colony_details": [],
+            "segment_mode": segment_mode,
         }

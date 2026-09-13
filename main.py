@@ -11,6 +11,7 @@ import datetime
 # 添加项目根目录到路径，以导入 backend 模块
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from backend.core.algorithm import process_image as algo_process_image, detect_petri_dish_circle
+from backend.core.smart import smart_count as algo_smart_count
 
 
 class ColonyCounter:
@@ -94,6 +95,13 @@ class ColonyCounter:
             bg='#2196F3', fg='white', relief=tk.FLAT, padx=15, pady=4
         )
         self.process_button.pack(side=tk.LEFT, padx=5)
+
+        self.smart_button = tk.Button(
+            btn_frame, text="⚡ 一键智能", command=self.process_image_smart,
+            state=tk.DISABLED, font=("Microsoft YaHei", 10, "bold"),
+            bg='#4CAF50', fg='white', relief=tk.FLAT, padx=12, pady=4
+        )
+        self.smart_button.pack(side=tk.LEFT, padx=5)
 
         self.save_button = tk.Button(
             btn_frame, text="💾 保存", command=self.save_results,
@@ -398,6 +406,7 @@ class ColonyCounter:
             self.image_path = file_path
             self.load_image()
             self.process_button.config(state=tk.NORMAL)
+            self.smart_button.config(state=tk.NORMAL)
             self.status_label.config(text=f"已加载: {os.path.basename(file_path)}")
 
     def load_image(self):
@@ -602,6 +611,66 @@ class ColonyCounter:
         self.root.config(cursor="wait")
         threading.Thread(target=self._process_image_thread, daemon=True).start()
 
+    def process_image_smart(self):
+        """一键智能计数：自动估参 + 多策略选优。"""
+        if self.original_image is None or self.is_processing:
+            return
+        self.is_processing = True
+        self.smart_button.config(state=tk.DISABLED, text="智能中...")
+        self.process_button.config(state=tk.DISABLED)
+        self.status_label.config(text="一键智能计数中（估参+多策略）...")
+        self.root.config(cursor="wait")
+        threading.Thread(target=self._process_smart_thread, daemon=True).start()
+
+    def _process_smart_thread(self):
+        try:
+            result = algo_smart_count(self.original_image)
+            if result.get("error"):
+                self.root.after(0, lambda: messagebox.showerror("错误", f"智能计数失败: {result['error']}"))
+                return
+
+            self.binary_image = result["binary_image"]
+            self.processed_image = result["processed_image"]
+            self.colony_count = result["count"]
+            self.colony_details = result.get("colony_details", [])
+            self._last_smart_meta = {
+                "strategy": result.get("strategy"),
+                "petri_detected": result.get("petri_detected"),
+                "params": result.get("params"),
+                "candidates": result.get("candidates"),
+            }
+            # 将最优参数回填到 UI 控件，便于继续微调
+            params = result.get("params") or {}
+            try:
+                if "blur_ksize" in params:
+                    self.blur_ksize.set(int(params["blur_ksize"]))
+                if params.get("min_area"):
+                    self.min_area.set(int(params["min_area"]))
+                if params.get("max_area"):
+                    self.max_area.set(int(params["max_area"]))
+                if "min_distance_from_edge" in params:
+                    self.min_distance_from_edge.set(int(params["min_distance_from_edge"]))
+                if params.get("detect_petri_dish"):
+                    self.detect_petri_dish.set(True)
+                if params.get("use_watershed"):
+                    self.use_watershed.set(True)
+                if params.get("thresh_method") == "manual":
+                    self.thresh_method.set("手动阈值")
+                    if "thresh_val" in params:
+                        self.thresh_val.set(int(params["thresh_val"]))
+            except Exception:
+                pass
+
+            self.root.after(0, self._update_process_result)
+            self.root.after(0, lambda: self.status_label.config(
+                text=f"智能完成：策略={result.get('strategy')}，计数={result.get('count')}"
+            ))
+        except Exception as e:
+            self.root.after(0, lambda: messagebox.showerror("错误", f"智能计数失败: {str(e)}"))
+        finally:
+            self.is_processing = False
+            self.root.after(0, self._reset_process_button)
+
     def _process_image_thread(self):
         try:
             thresh_method_map = {"手动阈值": "manual", "自适应阈值": "adaptive"}
@@ -662,6 +731,7 @@ class ColonyCounter:
 
     def _reset_process_button(self):
         self.process_button.config(state=tk.NORMAL, text="▶️ 处理")
+        self.smart_button.config(state=tk.NORMAL, text="⚡ 一键智能")
         self.root.config(cursor="")
 
     def display_image_on_canvas_widget(self, cv_image, canvas):

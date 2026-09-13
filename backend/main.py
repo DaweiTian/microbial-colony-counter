@@ -16,6 +16,7 @@ from PIL import Image
 
 # Import core algorithm and schemas
 from backend.core.algorithm import process_image
+from backend.core.smart import smart_count
 from backend.schemas import CountResponse
 
 # 线程池用于CPU密集型任务，避免阻塞事件循环
@@ -148,6 +149,59 @@ async def count_colonies(
         response.processed_image_base64 = image_to_base64(thumb, quality=55)
 
     return response
+
+
+def _build_count_response(result: dict, processing_ms: float) -> CountResponse:
+    """把 process_image / smart_count 结果转成 API 响应。"""
+    cand = result.get("candidates")
+    if cand is not None:
+        cand = [
+            {k: c.get(k) for k in ("strategy", "count", "score", "error") if k in c}
+            for c in cand
+        ]
+    response = CountResponse(
+        count=result["count"],
+        quality_score=None,
+        warnings=[],
+        petri_circle=result.get("petri_circle"),
+        processing_ms=processing_ms,
+        colony_details=result.get("colony_details", []),
+        strategy=result.get("strategy"),
+        detector=result.get("detector", "opencv"),
+        smart=result.get("smart"),
+        petri_detected=result.get("petri_detected"),
+        candidates=cand,
+    )
+    if result.get("binary_image") is not None:
+        thumb = make_thumbnail(result["binary_image"], max_dim=800)
+        response.binary_image_base64 = image_to_base64(thumb, quality=50)
+    if result.get("processed_image") is not None:
+        thumb = make_thumbnail(result["processed_image"], max_dim=800)
+        response.processed_image_base64 = image_to_base64(thumb, quality=55)
+    return response
+
+
+@app.post("/api/v1/count_smart", response_model=CountResponse)
+async def count_colonies_smart(
+    image: UploadFile = File(...),
+    use_smart: bool = Form(True, description="一键智能（估参+多策略）"),
+):
+    """一键智能计数：自动培养皿检测 + 估参 + 多策略选优。"""
+    start_time = time.time()
+    try:
+        contents = await image.read()
+        cv_image = decode_image(contents)
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Invalid image file: {str(e)}")
+
+    loop = asyncio.get_event_loop()
+    result = await loop.run_in_executor(_executor, lambda: smart_count(cv_image))
+    if result.get("error"):
+        raise HTTPException(status_code=500, detail=f"Algorithm error: {result['error']}")
+    result.setdefault("detector", "opencv")
+    result.setdefault("smart", True)
+    return _build_count_response(result, (time.time() - start_time) * 1000)
+
 
 @app.get("/", response_class=HTMLResponse)
 async def read_root():

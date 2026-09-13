@@ -1,0 +1,6 @@
+{
+  "image": "test1.jpg",
+  "count": 95,
+  "confidence": "approximate",
+  "notes": "稀疏白菌落+笔迹；与既有 calibrator 暂定真值一致，目视约 90～100"
+}

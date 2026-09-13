@@ -18,3 +18,8 @@ class CountResponse(BaseModel):
     petri_circle: Optional[Tuple[int, int, int]] = Field(None, description="检测到的培养皿圆形 (x, y, r)")
     processing_ms: Optional[float] = Field(None, description="处理耗时(ms)")
     colony_details: List[ColonyDetail] = Field(default=[], description="各菌落详情列表")
+    strategy: Optional[str] = Field(None, description="smart 模式选用的策略")
+    detector: Optional[str] = Field(None, description="检测器名称")
+    smart: Optional[bool] = Field(None, description="是否一键智能模式")
+    petri_detected: Optional[bool] = Field(None, description="是否检出培养皿")
+    candidates: Optional[List[Dict[str, Any]]] = Field(None, description="smart 候选策略摘要")

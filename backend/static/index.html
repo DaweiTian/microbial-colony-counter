@@ -532,7 +532,10 @@
             </div>
         </div>
 
-        <button id="processBtn" class="btn" onclick="processImage()" disabled>开始计数</button>
+        <div style="display:flex; gap:10px; flex-wrap:wrap; align-items:center;">
+            <button id="processBtn" class="btn" onclick="processImage()" disabled>开始计数</button>
+            <button id="smartBtn" class="btn" onclick="processImageSmart()" disabled style="background:#0f9d58;">⚡ 一键智能</button>
+        </div>
         <div id="statusTip" class="status-tip"></div>
 
         <div id="loading" class="loading">
@@ -610,6 +613,8 @@
                 const processBtn = document.getElementById('processBtn');
                 processBtn.disabled = false;
                 processBtn.textContent = '开始计数';
+                const smartBtn = document.getElementById('smartBtn');
+                if (smartBtn) smartBtn.disabled = false;
                 document.getElementById('result').style.display = 'none';
 
                 const reader = new FileReader();
@@ -883,6 +888,55 @@
         function setRoiAdjustVisible(visible) {
             const panel = document.getElementById('roiAdjustPanel');
             if (panel) panel.style.display = visible ? 'block' : 'none';
+        }
+
+        async function processImageSmart() {
+            if (!selectedFile) {
+                alert('请先选择一张图片');
+                setStatus('请先选择图片');
+                return;
+            }
+            const processBtn = document.getElementById('processBtn');
+            const smartBtn = document.getElementById('smartBtn');
+            processBtn.disabled = true;
+            smartBtn.disabled = true;
+            smartBtn.textContent = '智能中...';
+            document.getElementById('loading').style.display = 'block';
+            document.getElementById('result').style.display = 'none';
+            setStatus('一键智能计数中（自动估参+多策略）...');
+
+            const formData = new FormData();
+            formData.append('image', selectedFile);
+            formData.append('use_smart', true);
+
+            try {
+                const response = await fetch('/api/v1/count_smart', { method: 'POST', body: formData });
+                if (response.ok) {
+                    const data = await response.json();
+                    currentResult = data;
+                    showResult(data);
+                    saveToHistory(data);
+                    const st = data.strategy ? `（策略 ${data.strategy}）` : '';
+                    setStatus(`智能处理完成${st}`);
+                    processBtn.textContent = '重新计数';
+                } else {
+                    let detailText = response.statusText;
+                    try {
+                        const errJson = await response.json();
+                        detailText = errJson.detail || JSON.stringify(errJson);
+                    } catch (e) {}
+                    setStatus('处理失败: ' + detailText);
+                    alert('处理失败: ' + detailText);
+                }
+            } catch (error) {
+                setStatus('网络错误: ' + error.message);
+                alert('网络错误: ' + error.message);
+            } finally {
+                document.getElementById('loading').style.display = 'none';
+                processBtn.disabled = false;
+                smartBtn.disabled = false;
+                smartBtn.textContent = '⚡ 一键智能';
+            }
         }
 
         async function processImage() {
