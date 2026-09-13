@@ -12,3 +12,11 @@ datasets/colony/images/
 datasets/colony/labels/
 datasets/colony/export_meta.json
 datasets/colony/dataset.yaml
+
+# Frontend / Tauri
+frontend/node_modules/
+frontend/dist/
+desktop/node_modules/
+desktop/src-tauri/target/
+desktop/src-tauri/gen/
+

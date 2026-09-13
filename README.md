@@ -256,16 +256,50 @@ python main.py
 
 工具栏 **「⚡ 一键智能」** 自动估参计数；**「▶️ 处理」** 使用当前滑条参数；**「📦 批次标定」** 打开参数学习工作台。
 
-### 方法二：Web 版
+### 方法二：Web 主界面（React，推荐）
+
+主界面已改为 **Vite + React + TypeScript + Tailwind** 科技感工作台（单图计数 + 批次标定）。
 
 ```bash
+# 1) 后端
 pip install -r requirements.txt
-python web_launcher.py
+# 若缺 FastAPI 相关包：pip install fastapi "uvicorn[standard]" python-multipart
+
+# 2) 构建前端并同步到 backend/static
+cd frontend
+npm install
+npm run build:sync
+cd ..
+
+# 3) 启动
+uvicorn backend.main:app --host 0.0.0.0 --port 8000
+# 浏览器打开 http://127.0.0.1:8000
 ```
 
-Windows 可双击 `run_gui.bat` / `start_web_app.bat`。手机与电脑同一局域网即可访问。
+开发热更新：
 
-### 方法三：打包
+```bash
+# 终端 1：后端
+uvicorn backend.main:app --port 8000
+# 终端 2：前端
+cd frontend && npm run dev
+# 打开 http://127.0.0.1:5173 （/api 代理到 8000）
+```
+
+Windows 也可用 `python web_launcher.py` 或 `start_web_app.bat` 启动后端后访问上述地址。手机与电脑同一局域网即可。
+
+### 方法三：Tauri 桌面壳
+
+```powershell
+# 先保证后端 :8000 在跑
+cd desktop
+npm install
+npm run tauri:dev
+```
+
+详见 `desktop/README.md`。Python 后端仍需单独启动（本期无 sidecar 离线打包）。
+
+### 方法四：打包
 
 ```bash
 python build.py

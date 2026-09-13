@@ -18,6 +18,7 @@ from PIL import Image
 from backend.core.algorithm import process_image
 from backend.core.smart import smart_count
 from backend.schemas import CountResponse
+from backend.api_batch import router as batch_router
 
 # 线程池用于CPU密集型任务，避免阻塞事件循环
 _executor = ThreadPoolExecutor(max_workers=2)
@@ -37,8 +38,16 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Mount static files
-app.mount("/static", StaticFiles(directory="backend/static"), name="static")
+app.include_router(batch_router)
+
+# React 构建产物（frontend/dist），未构建时回退 legacy
+_STATIC_DIR = os.path.join(os.path.dirname(__file__), "static")
+_LEGACY_HTML = os.path.join(_STATIC_DIR, "legacy-index.html.bak")
+_REACT_INDEX = os.path.join(_STATIC_DIR, "index.html")
+_ASSETS_DIR = os.path.join(_STATIC_DIR, "assets")
+
+if os.path.isdir(_ASSETS_DIR):
+    app.mount("/assets", StaticFiles(directory=_ASSETS_DIR), name="assets")
 
 def image_to_base64(image: np.ndarray, quality: int = 55) -> str:
     """Convert OpenCV image to compressed base64 string"""
@@ -215,7 +224,22 @@ async def count_colonies_smart(
 
 @app.get("/", response_class=HTMLResponse)
 async def read_root():
-    with open("backend/static/index.html", "r", encoding="utf-8") as f:
+    path = _REACT_INDEX if os.path.isfile(_REACT_INDEX) else None
+    if path is None and os.path.isfile(_LEGACY_HTML):
+        path = _LEGACY_HTML
+    if path is None:
+        return HTMLResponse(
+            content=(
+                "<html><body style='font-family:sans-serif;padding:2rem'>"
+                "<h2>前端未构建</h2>"
+                "<p>请先运行 <code>cd frontend && npm install && npm run build</code>，"
+                "再把 <code>frontend/dist</code> 同步到 <code>backend/static/</code>，"
+                "或直接访问 Vite 开发服务器。</p>"
+                "</body></html>"
+            ),
+            status_code=200,
+        )
+    with open(path, "r", encoding="utf-8") as f:
         return HTMLResponse(
             content=f.read(),
             headers={
