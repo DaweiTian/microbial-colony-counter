@@ -168,12 +168,20 @@ export function BatchPage({ applyParamsToCount, toast }: Props) {
           </SectionTitle>
           <div className="space-y-2">
             {refs.map((r) => (
-              <button
+              <div
                 key={r.id}
+                role="button"
+                tabIndex={0}
                 className={`flex w-full items-center gap-2 rounded-lg border p-2 text-left ${
                   r.id === activeRefId ? 'border-primary bg-primary-soft' : 'border-line'
                 }`}
                 onClick={() => setActiveRefId(r.id)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' || e.key === ' ') {
+                    e.preventDefault()
+                    setActiveRefId(r.id)
+                  }
+                }}
               >
                 <img src={r.thumb} alt="" className="h-10 w-10 rounded object-cover" />
                 <div className="min-w-0 flex-1">
@@ -182,9 +190,9 @@ export function BatchPage({ applyParamsToCount, toast }: Props) {
                     N={r.totalGt ?? '—'} · 点 {r.points.length}
                   </div>
                 </div>
-                <span
-                  role="button"
-                  tabIndex={0}
+                <button
+                  type="button"
+                  aria-label={`删除 ${r.name}`}
                   className="text-muted hover:text-danger"
                   onClick={(e) => {
                     e.stopPropagation()
@@ -193,8 +201,8 @@ export function BatchPage({ applyParamsToCount, toast }: Props) {
                   }}
                 >
                   <Trash2 size={14} />
-                </span>
-              </button>
+                </button>
+              </div>
             ))}
             {refs.length === 0 && (
               <EmptyState title="尚无参考盘" desc="上传 1–5 张已知人工计数的平板照片" />

@@ -26,7 +26,21 @@ function apiUrl(path: string) {
 async function parseError(res: Response): Promise<string> {
   try {
     const data = await res.json()
-    return data.detail || data.message || res.statusText
+    const detail = data.detail ?? data.message
+    if (typeof detail === 'string') return detail
+    if (Array.isArray(detail)) {
+      return detail
+        .map((d: unknown) =>
+          typeof d === 'string'
+            ? d
+            : typeof d === 'object' && d && 'msg' in d
+              ? String((d as { msg: unknown }).msg)
+              : JSON.stringify(d),
+        )
+        .join('; ')
+    }
+    if (detail != null) return String(detail)
+    return res.statusText || `HTTP ${res.status}`
   } catch {
     return res.statusText || `HTTP ${res.status}`
   }
@@ -183,14 +197,20 @@ export function downloadDataUrl(filename: string, dataUrl: string) {
   a.click()
 }
 
+function csvEscape(value: string | number): string {
+  let s = String(value ?? '')
+  // Excel/CSV 公式注入防护
+  if (/^[=+\-@\t\r]/.test(s)) s = `'${s}`
+  if (/["\n\r,]/.test(s)) s = `"${s.replace(/"/g, '""')}"`
+  return s
+}
+
 export function resultsToCsv(
   items: Array<{ name: string; count: number; error?: string | null }>,
 ) {
   const header = 'name,count,error'
   const rows = items.map((r) =>
-    [r.name, r.count, r.error ? `"${String(r.error).replace(/"/g, '""')}"` : ''].join(
-      ',',
-    ),
+    [csvEscape(r.name), csvEscape(r.count), csvEscape(r.error || '')].join(','),
   )
   return [header, ...rows].join('\n')
 }

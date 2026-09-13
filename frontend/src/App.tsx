@@ -10,7 +10,7 @@ export default function App() {
   const [tab, setTab] = useState<'count' | 'batch'>('count')
   const [health, setHealth] = useState<'checking' | 'ok' | 'down'>('checking')
   const [countParams, setCountParams] = useState<CountParams>(defaultCountParams)
-  const [paramsEpoch, setParamsEpoch] = useState(0)
+  const [appliedParams, setAppliedParams] = useState<CountParams | null>(null)
   const { msg, show } = useToast()
 
   useEffect(() => {
@@ -29,7 +29,7 @@ export default function App() {
 
   const applyParamsToCount = useCallback((p: CountParams) => {
     setCountParams(p)
-    setParamsEpoch((n) => n + 1)
+    setAppliedParams(p)
     setTab('count')
   }, [])
 
@@ -66,7 +66,11 @@ export default function App() {
 
       <main className="min-h-0 flex-1 overflow-auto p-4">
         {tab === 'count' ? (
-          <CountPage key={paramsEpoch} initialParams={countParams} />
+          <CountPage
+            initialParams={countParams}
+            appliedParams={appliedParams}
+            onAppliedParamsConsumed={() => setAppliedParams(null)}
+          />
         ) : (
           <BatchPage applyParamsToCount={applyParamsToCount} toast={show} />
         )}

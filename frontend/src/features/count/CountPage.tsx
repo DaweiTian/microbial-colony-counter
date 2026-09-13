@@ -44,10 +44,35 @@ function loadHistory(): HistoryItem[] {
 }
 
 function saveHistory(items: HistoryItem[]) {
-  localStorage.setItem(HISTORY_KEY, JSON.stringify(items.slice(0, 20)))
+  const slim = items.slice(0, 20)
+  try {
+    localStorage.setItem(HISTORY_KEY, JSON.stringify(slim))
+  } catch {
+    // 配额不足时去掉缩略图再试
+    try {
+      localStorage.setItem(
+        HISTORY_KEY,
+        JSON.stringify(slim.map((h) => ({ ...h, thumb: null }))),
+      )
+    } catch {
+      try {
+        localStorage.removeItem(HISTORY_KEY)
+      } catch {
+        /* ignore */
+      }
+    }
+  }
 }
 
-export function CountPage({ initialParams }: { initialParams?: CountParams }) {
+export function CountPage({
+  initialParams,
+  appliedParams,
+  onAppliedParamsConsumed,
+}: {
+  initialParams?: CountParams
+  appliedParams?: CountParams | null
+  onAppliedParamsConsumed?: () => void
+}) {
   const [file, setFile] = useState<File | null>(null)
   const [imgSrc, setImgSrc] = useState<string | null>(null)
   const [imageEl, setImageEl] = useState<HTMLImageElement | null>(null)
@@ -65,7 +90,25 @@ export function CountPage({ initialParams }: { initialParams?: CountParams }) {
   const fileInputRef = useRef<HTMLInputElement>(null)
   const debounceRef = useRef<number | null>(null)
 
+  useEffect(() => {
+    if (appliedParams) {
+      setParams(appliedParams)
+      onAppliedParamsConsumed?.()
+    }
+  }, [appliedParams, onAppliedParamsConsumed])
+
   const acceptFile = useCallback((f: File) => {
+    if (!f.type.startsWith('image/') && f.size > 0) {
+      // 仍允许无 MIME 的粘贴，但拒绝明显非图
+      if (f.type && !f.type.startsWith('image/')) {
+        setError('请选择图片文件')
+        return
+      }
+    }
+    if (f.size > 15 * 1024 * 1024) {
+      setError('图片过大（上限 15MB）')
+      return
+    }
     setFile(f)
     setResult(null)
     setError(null)
@@ -120,9 +163,9 @@ export function CountPage({ initialParams }: { initialParams?: CountParams }) {
       }
       setHistory((h) => {
         const next = [item, ...h].slice(0, 20)
-        saveHistory(next)
         return next
       })
+      saveHistory([item, ...history].slice(0, 20))
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e))
     } finally {
@@ -151,9 +194,9 @@ export function CountPage({ initialParams }: { initialParams?: CountParams }) {
       }
       setHistory((h) => {
         const next = [item, ...h].slice(0, 20)
-        saveHistory(next)
         return next
       })
+      saveHistory([item, ...history].slice(0, 20))
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e))
     } finally {
@@ -165,6 +208,16 @@ export function CountPage({ initialParams }: { initialParams?: CountParams }) {
   useEffect(() => {
     if (roiMode === 'none' || !roiShape) return
     const onKey = (e: KeyboardEvent) => {
+      const target = e.target as HTMLElement | null
+      if (
+        target &&
+        (target.tagName === 'INPUT' ||
+          target.tagName === 'TEXTAREA' ||
+          target.tagName === 'SELECT' ||
+          target.isContentEditable)
+      ) {
+        return
+      }
       const step = e.shiftKey ? 10 : 2
       if (e.key === 'ArrowLeft') {
         e.preventDefault()
@@ -189,6 +242,7 @@ export function CountPage({ initialParams }: { initialParams?: CountParams }) {
     if (!autoPreview || !file) return
     if (debounceRef.current) window.clearTimeout(debounceRef.current)
     debounceRef.current = window.setTimeout(() => {
+      if (loading) return
       void runCount()
     }, 400)
     return () => {
@@ -654,8 +708,18 @@ export function CountPage({ initialParams }: { initialParams?: CountParams }) {
 
       {modalSrc && (
         <div
+          role="dialog"
+          aria-modal="true"
+          aria-label="结果预览"
           className="fixed inset-0 z-40 flex items-center justify-center bg-black/80 p-6"
           onClick={() => setModalSrc(null)}
+          onKeyDown={(e) => {
+            if (e.key === 'Escape') setModalSrc(null)
+          }}
+          tabIndex={-1}
+          ref={(el) => {
+            if (el) el.focus()
+          }}
         >
           <img src={modalSrc} alt="preview" className="max-h-full max-w-full rounded-lg" />
         </div>

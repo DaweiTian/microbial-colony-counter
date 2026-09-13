@@ -55,28 +55,50 @@ def download_upx():
         print("✅ UPX已存在")
         return True
     
+    # 默认不自动下载并执行未校验的 UPX 二进制（供应链风险）。
+    # 如需启用：设置环境变量 COLONY_DOWNLOAD_UPX=1，并自行核验哈希。
+    if os.environ.get("COLONY_DOWNLOAD_UPX") != "1":
+        print("⚠️  跳过自动下载 UPX（默认关闭）。")
+        print("   请手动从 https://github.com/upx/upx/releases 获取并放到 upx/ 目录，")
+        print("   或设置 COLONY_DOWNLOAD_UPX=1 后自行承担校验责任。")
+        return False
+
     try:
         if platform.system() == "Windows":
-            # Windows下下载UPX
+            import hashlib
             import urllib.request
             import zipfile
-            
+
             print("正在下载UPX for Windows...")
             upx_url = "https://github.com/upx/upx/releases/download/v4.2.4/upx-4.2.4-win64.zip"
+            # 官方 release 的 SHA256（upx-4.2.4-win64.zip）；若变更请更新
+            expected_sha256 = os.environ.get(
+                "COLONY_UPX_SHA256",
+                "",
+            ).strip().lower()
             urllib.request.urlretrieve(upx_url, "upx.zip")
-            
-            # 解压
+            if expected_sha256:
+                h = hashlib.sha256()
+                with open("upx.zip", "rb") as f:
+                    for chunk in iter(lambda: f.read(1024 * 1024), b""):
+                        h.update(chunk)
+                actual = h.hexdigest().lower()
+                if actual != expected_sha256:
+                    os.remove("upx.zip")
+                    print(f"❌ UPX 校验失败: {actual}")
+                    return False
+            else:
+                print("⚠️  未设置 COLONY_UPX_SHA256，跳过完整性校验")
+
             with zipfile.ZipFile("upx.zip", 'r') as zip_ref:
                 zip_ref.extractall(".")
-            
-            # 重命名文件夹
+
             extracted_dir = "upx-4.2.4-win64"
             if os.path.exists(extracted_dir):
                 os.rename(extracted_dir, "upx")
-            
-            # 清理下载文件
+
             os.remove("upx.zip")
-            
+
         print("✅ UPX下载完成")
         return True
     except Exception as e:

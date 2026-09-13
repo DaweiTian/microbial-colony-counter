@@ -195,8 +195,36 @@ def process_image(
     :return: 结果字典
     """
     try:
+        if image is None or not isinstance(image, np.ndarray) or image.ndim < 2:
+            return {
+                "count": 0,
+                "binary_image": None,
+                "processed_image": None,
+                "petri_circle": None,
+                "error": "无效输入图像",
+                "scale_ratio": 1.0,
+                "original_size": (0, 0),
+                "colony_details": [],
+                "segment_mode": None,
+            }
         # ── 大图自动缩放 ──
         original_height, original_width = image.shape[:2]
+        if original_height <= 0 or original_width <= 0:
+            return {
+                "count": 0,
+                "binary_image": None,
+                "processed_image": None,
+                "petri_circle": None,
+                "error": "无效输入图像尺寸",
+                "scale_ratio": 1.0,
+                "original_size": (0, 0),
+                "colony_details": [],
+                "segment_mode": None,
+            }
+        # 参数钳制（防御 OOM / OpenCV 崩溃）
+        seed_kernel = max(3, min(51, int(seed_kernel)))
+        if seed_kernel % 2 == 0:
+            seed_kernel += 1
         scale_ratio = 1.0
         max_dimension = 1200
 
@@ -250,48 +278,62 @@ def process_image(
         if manual_roi is not None:
             if len(manual_roi) == 3:  # 圆形 (cx, cy, r)
                 cx, cy, r = manual_roi
+                r = max(1, int(r))
+                cx = int(max(0, min(width - 1, int(cx))))
+                cy = int(max(0, min(height - 1, int(cy))))
                 roi_mask = np.zeros_like(gray)
-                cv2.circle(roi_mask, (int(cx), int(cy)), int(r), 255, -1)
-                cv2.circle(output_image, (int(cx), int(cy)), int(r), (0, 255, 255), 3)
+                cv2.circle(roi_mask, (cx, cy), r, 255, -1)
+                cv2.circle(output_image, (cx, cy), r, (0, 255, 255), 3)
             elif len(manual_roi) == 4:  # 矩形 (x, y, w, h)
                 rx, ry, rw, rh = manual_roi
+                rx = max(0, min(width - 1, int(rx)))
+                ry = max(0, min(height - 1, int(ry)))
+                rw = max(1, min(width - rx, int(rw)))
+                rh = max(1, min(height - ry, int(rh)))
                 roi_mask = np.zeros_like(gray)
                 cv2.rectangle(roi_mask, (rx, ry), (rx + rw, ry + rh), 255, -1)
                 cv2.rectangle(output_image, (rx, ry), (rx + rw, ry + rh), (0, 255, 255), 3)
 
         # ── 应用掩码到灰度图 ──
-        if petri_mask is not None:
+        # 优先手动 ROI；若同时开启皿检测且无手动 ROI 才用皿掩码
+        if roi_mask is not None:
+            gray = cv2.bitwise_and(gray, gray, mask=roi_mask)
+        elif petri_mask is not None:
             pcx, pcy, pr = petri_mask
             mask = np.zeros_like(gray)
             cv2.circle(mask, (int(pcx), int(pcy)), int(pr), 255, -1)
             gray = cv2.bitwise_and(gray, gray, mask=mask)
-        elif roi_mask is not None:
-            gray = cv2.bitwise_and(gray, roi_mask)
 
         # ── 2. 高斯模糊去噪 ──
+        blur_ksize = max(1, int(blur_ksize))
         if blur_ksize % 2 == 0:
             blur_ksize += 1
+        if blur_ksize > 31:
+            blur_ksize = 31
         blurred = cv2.GaussianBlur(gray, (blur_ksize, blur_ksize), 0)
 
         # ── 3. 二值化 ──
         if thresh_method == "manual":
             _, thresh = cv2.threshold(blurred, thresh_val, 255, cv2.THRESH_BINARY_INV)
         else:  # adaptive
+            adaptive_block_size = max(3, int(adaptive_block_size))
             if adaptive_block_size % 2 == 0:
                 adaptive_block_size += 1
+            if adaptive_block_size > 51:
+                adaptive_block_size = 51
             thresh = cv2.adaptiveThreshold(
                 blurred, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
                 cv2.THRESH_BINARY_INV, adaptive_block_size, adaptive_c
             )
 
         # ── 应用掩码到二值图 ──
-        if petri_mask is not None:
+        if roi_mask is not None:
+            thresh = cv2.bitwise_and(thresh, thresh, mask=roi_mask)
+        elif petri_mask is not None:
             pcx, pcy, pr = petri_mask
             mask = np.zeros_like(thresh)
             cv2.circle(mask, (int(pcx), int(pcy)), int(pr), 255, -1)
             thresh = cv2.bitwise_and(thresh, mask)
-        elif roi_mask is not None:
-            thresh = cv2.bitwise_and(thresh, roi_mask)
 
         result["binary_image"] = thresh.copy()
 
@@ -428,6 +470,10 @@ def process_image(
     except Exception as e:
         import traceback
         traceback.print_exc()
+        try:
+            orig_size = (int(image.shape[1]), int(image.shape[0])) if image is not None and hasattr(image, "shape") and len(image.shape) >= 2 else (0, 0)
+        except Exception:
+            orig_size = (0, 0)
         return {
             "count": 0,
             "binary_image": None,
@@ -435,7 +481,7 @@ def process_image(
             "petri_circle": None,
             "error": str(e),
             "scale_ratio": 1.0,
-            "original_size": (image.shape[1], image.shape[0]),
+            "original_size": orig_size,
             "colony_details": [],
             "segment_mode": segment_mode,
         }

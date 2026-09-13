@@ -310,4 +310,11 @@ registry = DetectorRegistry()
 
 
 def detect_colonies(image: np.ndarray, detector: str = "opencv", **kwargs: Any) -> DetectionResult:
-    return registry.get(detector).detect(image, **kwargs)
+    requested = detector
+    det = registry.get(detector)
+    result = det.detect(image, **kwargs)
+    if requested and requested != "opencv" and det.name == "opencv":
+        result.meta = dict(result.meta or {})
+        result.meta["fallback"] = True
+        result.meta["requested_detector"] = requested
+    return result

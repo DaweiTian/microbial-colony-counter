@@ -1,5 +1,7 @@
-fastapi
-uvicorn
-python-multipart
-opencv-python
-numpy
+# Web API 运行时
+fastapi>=0.100.0,<1
+uvicorn>=0.23.0,<1
+python-multipart>=0.0.6,<1
+opencv-python>=4.5.0,<5
+numpy>=1.19.0,<3
+Pillow>=8.0.0,<12

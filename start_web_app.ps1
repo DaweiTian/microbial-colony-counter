@@ -45,7 +45,9 @@ Write-Host "LAN URL:   http://$lanIp`:$port/"
 Write-Host "=============================="
 Write-Host ""
 
-& $pythonExe -m uvicorn backend.main:app --host 0.0.0.0 --port $port
+# 默认仅本机；需要手机局域网访问时: $env:COLONY_HOST="0.0.0.0"
+$hostBind = if ($env:COLONY_HOST) { $env:COLONY_HOST } else { "127.0.0.1" }
+& $pythonExe -m uvicorn backend.main:app --host $hostBind --port $port
 if ($LASTEXITCODE -ne 0) {
     Write-Host ""
     Write-Host "Startup failed. Check port usage or dependency installation."

@@ -116,11 +116,20 @@ def watershed_labels(
             dist_s, max(1.5, 0.25 * float(dist_s.max())), 255, cv2.THRESH_BINARY
         )
         peaks = np.uint8(peaks)
+    # 极端情况下 peaks 仍可能为空 → 至少取 opening 的中心一点作种子，避免 markers 全 0
+    if cv2.countNonZero(peaks) == 0 and cv2.countNonZero(opening) > 0:
+        ys, xs = np.where(opening > 0)
+        if len(xs) > 0:
+            peaks = np.zeros_like(opening)
+            peaks[ys[len(ys) // 2], xs[len(xs) // 2]] = 255
 
     unknown = cv2.subtract(sure_bg, peaks)
     _, markers = cv2.connectedComponents(peaks)
     markers = markers + 1
     markers[unknown == 255] = 0
+    # 若 markers 无有效前景（全 0/1），直接返回零标签
+    if int(markers.max()) <= 1:
+        return np.zeros(binary.shape, dtype=np.int32)
 
     vis = cv2.cvtColor(binary, cv2.COLOR_GRAY2BGR)
     markers = cv2.watershed(vis, markers)

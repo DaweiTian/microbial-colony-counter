@@ -75,12 +75,30 @@ def download_and_setup_upx():
             if os.path.exists(upx_exe):
                 print("✅ UPX已存在")
                 return True
-                
+
+            if os.environ.get("COLONY_DOWNLOAD_UPX") != "1":
+                print("⚠️  跳过自动下载 UPX（默认关闭，避免执行未校验二进制）。")
+                print("   请手动放置 upx.exe，或设置 COLONY_DOWNLOAD_UPX=1 并核验哈希。")
+                return False
+
             # 下载UPX for Windows
             print("正在下载UPX for Windows...")
             upx_url = "https://github.com/upx/upx/releases/download/v4.2.4/upx-4.2.4-win64.zip"
             upx_zip_path = "upx.zip"
             urllib.request.urlretrieve(upx_url, upx_zip_path)
+            expected = os.environ.get("COLONY_UPX_SHA256", "").strip().lower()
+            if expected:
+                import hashlib
+                h = hashlib.sha256()
+                with open(upx_zip_path, "rb") as f:
+                    for chunk in iter(lambda: f.read(1024 * 1024), b""):
+                        h.update(chunk)
+                if h.hexdigest().lower() != expected:
+                    os.remove(upx_zip_path)
+                    print("❌ UPX 校验失败")
+                    return False
+            else:
+                print("⚠️  未设置 COLONY_UPX_SHA256，跳过完整性校验")
             
             # 解压
             with zipfile.ZipFile(upx_zip_path, 'r') as zip_ref:

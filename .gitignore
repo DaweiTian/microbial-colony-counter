@@ -20,3 +20,15 @@ desktop/node_modules/
 desktop/src-tauri/target/
 desktop/src-tauri/gen/
 
+# Secrets / venv / binaries
+.env
+.env.*
+.venv/
+venv/
+*.exe
+upx/
+!upx/README
+!upx/THANKS.txt
+!upx/upx-doc.*
+
+

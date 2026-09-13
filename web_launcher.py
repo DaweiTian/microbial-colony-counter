@@ -95,21 +95,30 @@ class WebAppLauncher:
                 except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess):
                     pass
         
-        # 如果 psutil 失败或不可用，尝试使用 Windows 命令
+        # 如果 psutil 失败或不可用，尝试使用 Windows 命令（无 shell，避免注入）
         try:
-            # 查找 PID
-            cmd_find = f"netstat -ano | findstr :{port}"
-            # 注意：在没有控制台窗口的情况下调用可能会有问题，这里使用 shell=True
-            output = subprocess.check_output(cmd_find, shell=True).decode()
-            lines = output.strip().split('\n')
+            output = subprocess.check_output(
+                ["netstat", "-ano"],
+                stderr=subprocess.DEVNULL,
+                text=True,
+                errors="ignore",
+            )
+            lines = output.strip().split("\n")
+            pids = set()
             for line in lines:
                 parts = line.strip().split()
-                if len(parts) >= 5:
+                if len(parts) >= 5 and f":{port}" in parts[1]:
                     pid = parts[-1]
-                    # 杀死进程
-                    subprocess.run(f"taskkill /F /PID {pid}", shell=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                    if pid.isdigit():
+                        pids.add(pid)
+            for pid in pids:
+                subprocess.run(
+                    ["taskkill", "/F", "/PID", pid],
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                )
             return True
-        except:
+        except Exception:
             pass
         
         return False
@@ -139,7 +148,8 @@ class WebAppLauncher:
         threading.Thread(target=self._run_uvicorn, daemon=True).start()
 
     def _run_uvicorn(self):
-        cmd = [sys.executable, "-m", "uvicorn", "backend.main:app", "--host", "0.0.0.0", "--port", str(self.port)]
+        host_bind = os.environ.get("COLONY_HOST", "127.0.0.1")
+        cmd = [sys.executable, "-m", "uvicorn", "backend.main:app", "--host", host_bind, "--port", str(self.port)]
         
         try:
             # 创建不显示窗口的启动信息
