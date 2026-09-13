@@ -3,27 +3,90 @@
 [![Python](https://img.shields.io/badge/Python-3.7+-blue.svg)](https://www.python.org/)
 [![OpenCV](https://img.shields.io/badge/OpenCV-4.x-green.svg)](https://opencv.org/)
 [![License](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
-[![Release](https://img.shields.io/badge/Release-v1.1.2-orange.svg)](https://github.com/Caizhaohui/microbial-colony-counter/releases/tag/v1.1.2)
+[![Release](https://img.shields.io/badge/Release-v1.2.0-orange.svg)](https://github.com/DaweiTian/microbial-colony-counter)
 
-一个功能强大的微生物培养皿菌落自动计数工具，支持桌面 GUI、Web 局域网访问，以及基于 **参考平板真值的批次参数学习**（标定后批量计数）。
+一个功能强大的微生物培养皿菌落自动计数工具，支持桌面 GUI、Web 局域网访问、**一键智能计数**、密菌落粘连分离，以及基于 **参考平板真值的批次参数学习**。并预留本地 **YOLO（ONNX）** 检测与评估管线。
 
-**仓库**: [https://github.com/Caizhaohui/microbial-colony-counter](https://github.com/Caizhaohui/microbial-colony-counter)
+**仓库**: [https://github.com/DaweiTian/microbial-colony-counter](https://github.com/DaweiTian/microbial-colony-counter)
 
 ---
 
 ## ✨ 功能特点
 
 - 🖼️ **多格式支持**：JPG、PNG、BMP、TIFF 等
+- ⚡ **一键智能计数（v1.2）**：自动检皿 + 估参 + 多策略选优（经典轮廓 / 分水岭标签 / 距离变换峰值）
 - 🔍 **智能计数**：基于 OpenCV 的图像处理自动检测与计数
-- ⚙️ **参数调节**：模糊、阈值、面积、边缘距离等
+- 💧 **密菌落分离（v1.2）**：标签直计数 + 距离场 NMS，改善粘连合并
+- ⚙️ **参数调节**：模糊、阈值、面积、边缘距离、`segment_mode` 等
 - 🎯 **区域选择**：手动矩形/圆形 ROI
 - 🧫 **培养皿检测**：自动检测圆形培养皿区域
-- 💧 **分水岭算法**：可选分离粘连菌落
 - 🔵 **圆度过滤**：过滤非圆形杂质
 - 📊 **实时显示** / 📝 **菌落详情** / 💾 **结果保存**
 - 📱 **Web App**：手机浏览器局域网访问
 - ⚡ **性能优化**：缩略图 + JPEG 压缩 + 异步线程池
 - 📦 **批次参数学习（v1.1.1 / v1.1.2）**：用参考盘人工计数数据搜索本批次最优参数，再批量处理其余平板
+- 🧪 **离线评估（v1.2）**：`python -m backend.eval.run`，策略对比与误差报告
+- 🤖 **YOLO 准备（v1.2）**：伪标签导出、训练/ONNX 导出骨架、本地推理回退
+
+---
+
+## ⚡ 一键智能计数（v1.2）
+
+不想调参时，直接用智能模式：
+
+| 入口 | 操作 |
+|------|------|
+| 桌面 | 工具栏 **「⚡ 一键智能」** |
+| Web | 按钮 **「⚡ 一键智能」**，或 `POST /api/v1/count_smart` |
+
+流程简述：自动检测培养皿 → 从图像统计估参 → 多策略试跑 → 按形状/面积/密度启发式选优 → 回填参数便于微调。
+
+密菌落盘通常会选中 **labels（分水岭标签）**；稀疏盘常选 **default_petri（经典+皿检测）**。
+
+API 示例：
+
+```bash
+curl -F "image=@test1.jpg" http://127.0.0.1:8000/api/v1/count_smart
+# 可选检测器（需本地 ONNX 权重，否则回退 OpenCV）：
+curl -F "image=@test1.jpg" -F "detector=yolo-onnx" http://127.0.0.1:8000/api/v1/count_smart
+```
+
+---
+
+## 🧪 离线评估
+
+```bash
+# 在仓库根目录
+python -m backend.eval.run
+python -m backend.eval.run --case test1
+```
+
+- 用例与真值：`backend/eval/cases/*.json`（`count` 可为 `null` 表示暂无可靠人工真值）
+- 报告输出：`backend/eval/out/report.md`
+
+请用**人工计数**更新真值后再比较策略；不要把「默认算法输出」当作 GT。
+
+---
+
+## 🤖 YOLO 数据与训练（准备阶段）
+
+核心计数仍以本地 OpenCV 为主；YOLO 为可选增强。约定见 `datasets/colony/README.md`。
+
+```bash
+# 1) 伪标签导出（机器先框，人工再改错）
+python -m backend.yolo.export_dataset --image-dir /path/to/photos --out datasets/colony
+
+# 2) 安装可选依赖并训练
+pip install -r requirements-ml.txt
+python -m backend.yolo.train --data datasets/colony/dataset.yaml --epochs 50
+
+# 3) 导出 ONNX 供本地推理
+python -m backend.yolo.to_onnx --weights runs/detect/colony/weights/best.pt --out models/colony_yolo.onnx
+```
+
+- 标注格式：YOLO txt，单类 `0=colony`
+- 建议：可用 80～150 张真实盘图（覆盖稀疏/密菌落、笔迹、反光）
+- 无权重时 `yolo-onnx` 自动回退 OpenCV，不影响旧功能
 
 ---
 
@@ -191,7 +254,7 @@ pip install -r requirements.txt
 python main.py
 ```
 
-工具栏 **「📦 批次标定」** 打开参数学习工作台。
+工具栏 **「⚡ 一键智能」** 自动估参计数；**「▶️ 处理」** 使用当前滑条参数；**「📦 批次标定」** 打开参数学习工作台。
 
 ### 方法二：Web 版
 
@@ -265,9 +328,11 @@ psutil>=5.8.0
 ```
 
 ```bash
-git clone https://github.com/Caizhaohui/microbial-colony-counter.git
+git clone https://github.com/DaweiTian/microbial-colony-counter.git
 cd microbial-colony-counter
 pip install -r requirements.txt
+# 可选（YOLO 训练 / ONNX 推理）：
+# pip install -r requirements-ml.txt
 ```
 
 Web 后端见 `backend/requirements.txt`。
@@ -280,24 +345,40 @@ Web 后端见 `backend/requirements.txt`。
 microbial-colony-counter/
 ├── backend/
 │   ├── core/
-│   │   ├── algorithm.py      # 核心计数算法
+│   │   ├── algorithm.py      # 核心计数算法（classic / labels / peaks）
+│   │   ├── blobcount.py      # 密菌落：距离场 NMS + 分水岭标签
+│   │   ├── smart.py          # 一键智能：估参 + 多策略选优
+│   │   ├── detector.py       # 检测器抽象（opencv / yolo-onnx）
 │   │   ├── calibrator.py     # 单盘 / 多盘参数学习
 │   │   ├── batch.py          # 批量套用学习到的参数
-│   │   └── pointset.py       # 点集与标注
+│   │   ├── pointset.py       # 点集与标注
+│   │   └── evaluate.py       # 离线评估
+│   ├── yolo/                 # 伪标签导出 / 训练 / ONNX
+│   ├── eval/cases/           # 评估用例（图 + 真值 JSON）
 │   ├── static/index.html
-│   ├── main.py
+│   ├── main.py               # FastAPI（含 /api/v1/count_smart）
 │   └── test_*.py
-├── main.py                   # 桌面主程序
+├── datasets/colony/          # YOLO 数据集约定与 README
+├── docs/compose/spec/        # 功能规格
+├── main.py                   # 桌面主程序（含「一键智能」）
 ├── batch_workbench.py        # 批次学习工作台
 ├── web_launcher.py
-├── 开发计划-批次标定.md
 ├── requirements.txt
+├── requirements-ml.txt       # 可选：ultralytics / onnxruntime
 └── README.md
 ```
 
 ---
 
 ## 📋 更新日志
+
+### v1.2.0
+
+- ⚡ **一键智能计数**：桌面/Web 入口；多策略选优并回填参数  
+- 💧 **密菌落分离**：`blobcount` 标签直计数 + 距离场 NMS；修复旧分水岭塌缩  
+- 🧪 **离线评估 CLI** 与用例格式  
+- 🤖 **YOLO 准备**：伪标签导出、训练/ONNX 骨架、`yolo-onnx` 推理与回退  
+- 🧩 `segment_mode` / `count_smart` API / 检测器注册表  
 
 ### v1.1.2
 

@@ -185,8 +185,9 @@ def _build_count_response(result: dict, processing_ms: float) -> CountResponse:
 async def count_colonies_smart(
     image: UploadFile = File(...),
     use_smart: bool = Form(True, description="一键智能（估参+多策略）"),
+    detector: str = Form("opencv", description="检测器: opencv | yolo-onnx（无权重时回退 opencv）"),
 ):
-    """一键智能计数：自动培养皿检测 + 估参 + 多策略选优。"""
+    """一键智能计数：默认 OpenCV smart；可选 yolo-onnx。"""
     start_time = time.time()
     try:
         contents = await image.read()
@@ -194,11 +195,20 @@ async def count_colonies_smart(
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"Invalid image file: {str(e)}")
 
+    from backend.core.detector import detect_colonies
+
     loop = asyncio.get_event_loop()
-    result = await loop.run_in_executor(_executor, lambda: smart_count(cv_image))
+    if detector and detector != "opencv":
+        det = await loop.run_in_executor(
+            _executor, lambda: detect_colonies(cv_image, detector=detector)
+        )
+        result = det.to_dict()
+        result.setdefault("error", det.meta.get("error"))
+    else:
+        result = await loop.run_in_executor(_executor, lambda: smart_count(cv_image))
     if result.get("error"):
         raise HTTPException(status_code=500, detail=f"Algorithm error: {result['error']}")
-    result.setdefault("detector", "opencv")
+    result.setdefault("detector", detector or "opencv")
     result.setdefault("smart", True)
     return _build_count_response(result, (time.time() - start_time) * 1000)
 

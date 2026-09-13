@@ -5,3 +5,10 @@ __pycache__/
 *.log
 backend/eval/out/
 test_result_*.jpg
+runs/
+models/*.onnx
+models/*.pt
+datasets/colony/images/
+datasets/colony/labels/
+datasets/colony/export_meta.json
+datasets/colony/dataset.yaml

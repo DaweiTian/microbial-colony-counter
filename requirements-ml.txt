@@ -1,0 +1,5 @@
+# 可选：YOLO 训练与本地 ONNX 推理
+# pip install -r requirements-ml.txt
+ultralytics>=8.2.0
+onnxruntime>=1.17.0
+onnx>=1.15.0
