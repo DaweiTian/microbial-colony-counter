@@ -15,17 +15,31 @@ def detect_petri_dish_circle(image: np.ndarray) -> Optional[Tuple[int, int, int]
     """
     增强版培养皿圆形区域检测
     使用多组参数尝试，选取最佳圆（最接近图像中心且半径合理的）
+    HoughCircles 对边长敏感，先降到工作分辨率再检测，结果映射回原图坐标。
     :param image: 输入图像 (BGR)
     :return: (x, y, r) 或 None
     """
     try:
-        gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+        height, width = image.shape[:2]
+        # HoughCircles 在数千像素图上会极慢，固定在 ~1000px 工作分辨率上检测
+        work_max = 1000
+        detect_scale = 1.0
+        work = image
+        if max(height, width) > work_max:
+            detect_scale = work_max / float(max(height, width))
+            work = cv2.resize(
+                image,
+                (max(1, int(width * detect_scale)), max(1, int(height * detect_scale))),
+                interpolation=cv2.INTER_AREA,
+            )
+
+        gray = cv2.cvtColor(work, cv2.COLOR_BGR2GRAY)
         blurred = cv2.GaussianBlur(gray, (9, 9), 2)
 
-        height, width = image.shape[:2]
-        min_dim = min(height, width)
-        img_center_x = width / 2.0
-        img_center_y = height / 2.0
+        wh, ww = work.shape[:2]
+        min_dim = min(wh, ww)
+        img_center_x = ww / 2.0
+        img_center_y = wh / 2.0
 
         all_circles = []
 
@@ -37,15 +51,15 @@ def detect_petri_dish_circle(image: np.ndarray) -> Optional[Tuple[int, int, int]
             {"dp": 1.2, "param1": 40, "param2": 25},  # 宽松
         ]
 
-        min_radius = int(min_dim * 0.15)
-        max_radius = int(min_dim * 0.48)
+        min_radius = max(8, int(min_dim * 0.15))
+        max_radius = max(min_radius + 1, int(min_dim * 0.48))
 
         for params in param_sets:
             circles = cv2.HoughCircles(
                 blurred,
                 cv2.HOUGH_GRADIENT,
                 dp=params["dp"],
-                minDist=min_dim // 2,
+                minDist=max(1, min_dim // 2),
                 param1=params["param1"],
                 param2=params["param2"],
                 minRadius=min_radius,
@@ -81,7 +95,12 @@ def detect_petri_dish_circle(image: np.ndarray) -> Optional[Tuple[int, int, int]
                 best_circle = circle
 
         if best_circle is not None:
-            return (int(best_circle[0]), int(best_circle[1]), int(best_circle[2]))
+            inv = 1.0 / detect_scale
+            return (
+                int(round(float(best_circle[0]) * inv)),
+                int(round(float(best_circle[1]) * inv)),
+                int(round(float(best_circle[2]) * inv)),
+            )
 
         return None
 

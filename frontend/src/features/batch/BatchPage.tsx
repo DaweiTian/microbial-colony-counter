@@ -16,6 +16,7 @@ import type {
   CountParams,
   RefPlate,
 } from '../../types'
+import { FitZoomImage } from './FitZoomImage'
 
 type Props = {
   applyParamsToCount: (params: CountParams) => void
@@ -278,38 +279,24 @@ export function BatchPage({ applyParamsToCount, toast }: Props) {
               <EmptyState title="选择或上传一块参考盘" desc="左侧填人工计数 N；可选点选若干典型菌落作增强" />
             </div>
           ) : (
-            <div
-              className="relative min-h-0 flex-1 overflow-auto"
-              onClick={(e) => {
-                if (!pointMode || !activeRef) return
-                const target = e.currentTarget.querySelector('img')
-                if (!target) return
-                const rect = target.getBoundingClientRect()
-                const x = ((e.clientX - rect.left) / rect.width) * activeRef.width
-                const y = ((e.clientY - rect.top) / rect.height) * activeRef.height
-                const nextPoint = { x: Math.round(x), y: Math.round(y) }
-                const nextPoints = [...activeRef.points, nextPoint]
-                setRefs((prev) =>
-                  prev.map((r) =>
-                    r.id === activeRefId ? { ...r, points: nextPoints } : r,
-                  ),
-                )
-                if (activeRefId) syncRefToServer(activeRefId, { points: nextPoints })
-              }}
-            >
-              <div className="relative inline-block max-w-full">
-                <img src={activeRef.thumb} alt={activeRef.name} className="block max-w-full rounded-lg" />
-                {activeRef.points.map((p, i) => (
-                  <span
-                    key={i}
-                    className="pointer-events-none absolute h-3 w-3 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-white bg-primary shadow"
-                    style={{
-                      left: `${(p.x / activeRef.width) * 100}%`,
-                      top: `${(p.y / activeRef.height) * 100}%`,
-                    }}
-                  />
-                ))}
-              </div>
+            <div className="min-h-0 flex-1">
+              <FitZoomImage
+                src={activeRef.thumb}
+                width={activeRef.width}
+                height={activeRef.height}
+                points={activeRef.points}
+                pickEnabled={pointMode}
+                onPick={(x, y) => {
+                  if (!activeRefId || !activeRef) return
+                  const nextPoints = [...activeRef.points, { x, y }]
+                  setRefs((prev) =>
+                    prev.map((r) =>
+                      r.id === activeRefId ? { ...r, points: nextPoints } : r,
+                    ),
+                  )
+                  syncRefToServer(activeRefId, { points: nextPoints })
+                }}
+              />
             </div>
           )}
         </Card>
@@ -346,7 +333,7 @@ export function BatchPage({ applyParamsToCount, toast }: Props) {
           </div>
           <div className="flex flex-wrap gap-1.5">
             {batch.map((b) => (
-              <span key={b.id} className="rounded-full bg-slate-100 px-2 py-0.5 text-[11px]">
+              <span key={b.id} className="rounded-full bg-subtle px-2 py-0.5 text-[11px]">
                 {b.name}
               </span>
             ))}
@@ -400,7 +387,7 @@ export function BatchPage({ applyParamsToCount, toast }: Props) {
             </div>
           )}
           {calib && (
-            <div className="mt-3 rounded-lg border border-line bg-slate-50 p-3 text-[12px]">
+            <div className="mt-3 rounded-lg border border-line bg-elevated p-3 text-[12px]">
               <div className="flex items-center justify-between">
                 <span className="font-medium">标定结果</span>
                 <Badge tone={calib.success ? 'accent' : 'warn'}>
@@ -439,7 +426,7 @@ export function BatchPage({ applyParamsToCount, toast }: Props) {
             <SectionTitle>批量结果</SectionTitle>
             <div className="mb-2 overflow-auto rounded-lg border border-line">
               <table className="w-full text-[12px]">
-                <thead className="bg-slate-50 text-muted">
+                <thead className="bg-elevated text-muted">
                   <tr>
                     <th className="px-2 py-1.5 text-left">文件</th>
                     <th className="px-2 py-1.5 text-right">计数</th>

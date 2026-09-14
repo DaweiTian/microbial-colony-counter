@@ -1,28 +1,42 @@
+"""从根目录 icon.png 生成 Tauri 所需图标尺寸与 ico。"""
+
+from __future__ import annotations
+
 from pathlib import Path
 
-from PIL import Image, ImageDraw
+from PIL import Image
 
-out = Path("desktop/src-tauri/icons")
-out.mkdir(parents=True, exist_ok=True)
-
-
-def make(size: int) -> Image.Image:
-    img = Image.new("RGBA", (size, size), (0, 0, 0, 0))
-    d = ImageDraw.Draw(img)
-    m = max(1, size // 16)
-    d.rounded_rectangle([m, m, size - m, size - m], radius=size // 5, fill=(37, 99, 235, 255))
-    cx, cy = size // 2, size // 2
-    r = size // 4
-    d.ellipse([cx - r, cy - r, cx + r, cy + r], outline=(255, 255, 255, 255), width=max(2, size // 32))
-    d.ellipse([cx - r // 3, cy - r // 3, cx + r // 3, cy + r // 3], fill=(255, 255, 255, 230))
-    return img
+ROOT = Path(__file__).resolve().parents[2]
+SRC = ROOT / "icon.png"
+OUT = ROOT / "desktop" / "src-tauri" / "icons"
 
 
-for s in (32, 128, 256):
-    make(s).save(out / f"{s}x{s}.png")
-make(256).save(out / "icon.png")
-make(256).save(out / "128x128@2x.png")
-# ico
-imgs = [make(s) for s in (16, 32, 64, 128, 256)]
-imgs[-1].save(out / "icon.ico", format="ICO", sizes=[(16, 16), (32, 32), (64, 64), (128, 128)])
-print("ok", sorted(p.name for p in out.iterdir()))
+def main() -> int:
+    if not SRC.exists():
+        print("缺少根目录 icon.png")
+        return 1
+    OUT.mkdir(parents=True, exist_ok=True)
+    img = Image.open(SRC).convert("RGBA")
+    # 统一裁成正方形
+    side = min(img.size)
+    left = (img.width - side) // 2
+    top = (img.height - side) // 2
+    img = img.crop((left, top, left + side, top + side))
+
+    for size in (32, 128, 256):
+        img.resize((size, size), Image.Resampling.LANCZOS).save(OUT / f"{size}x{size}.png")
+    img.resize((256, 256), Image.Resampling.LANCZOS).save(OUT / "icon.png")
+    img.resize((128, 128), Image.Resampling.LANCZOS).save(OUT / "128x128@2x.png")
+    # Windows ico
+    ico_sizes = [(16, 16), (32, 32), (48, 48), (64, 64), (128, 128), (256, 256)]
+    img.resize((256, 256), Image.Resampling.LANCZOS).save(
+        OUT / "icon.ico", format="ICO", sizes=ico_sizes
+    )
+    print("icons written to", OUT)
+    for p in sorted(OUT.iterdir()):
+        print(f"  {p.name} {p.stat().st_size}")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

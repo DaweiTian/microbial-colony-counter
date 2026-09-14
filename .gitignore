@@ -1,8 +1,11 @@
 build/
+build_sidecar/
 dist/
 微生物菌落计数器.spec
 __pycache__/
 *.log
+sidecar_err.txt
+sidecar_out.txt
 backend/eval/out/
 test_result_*.jpg
 runs/
@@ -32,3 +35,9 @@ upx/
 !upx/upx-doc.*
 
 
+
+dist_factory/
+build_factory/
+ColonyCounterFactory.spec
+
+desktop/src-tauri/sidecar-backend/

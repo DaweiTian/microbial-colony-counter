@@ -9,13 +9,18 @@ import numpy as np
 import base64
 import time
 import os
+import sys
 import asyncio
 import logging
 from concurrent.futures import ThreadPoolExecutor
 from backend.image_security import (
+    DecodedImage,
     clamp_count_params,
-    decode_image_safe,
+    decode_image_with_meta,
     parse_roi,
+    sanitize_filename,
+    scale_area_params,
+    scale_roi_for_image,
 )
 
 # Import core algorithm and schemas
@@ -31,24 +36,35 @@ _executor = BATCH_EXECUTOR
 if _executor is None:  # pragma: no cover
     _executor = ThreadPoolExecutor(max_workers=2)
 
-# CORS：局域网工具默认允许常见本机来源；可用 COLONY_CORS_ORIGINS 覆盖（逗号分隔）
+# 默认端口避开常见 8000/8080/18080 占用
+DEFAULT_PORT = int(os.environ.get("COLONY_PORT", "18085"))
+
+# CORS：允许本机浏览器/Vite/Tauri WebView 源
 _cors_env = os.environ.get("COLONY_CORS_ORIGINS", "").strip()
 if _cors_env:
     _origins = [o.strip() for o in _cors_env.split(",") if o.strip()]
+    _origin_regex = None
 else:
     _origins = [
         "http://127.0.0.1:5173",
         "http://localhost:5173",
+        "http://127.0.0.1:18085",
+        "http://localhost:18085",
         "http://127.0.0.1:8000",
         "http://localhost:8000",
         "http://127.0.0.1:8001",
         "http://localhost:8001",
+        # Tauri WebView
+        "tauri://localhost",
+        "http://tauri.localhost",
+        "https://tauri.localhost",
     ]
+    _origin_regex = r"^(https?://(127\.0\.0\.1|localhost)(:\d+)?|tauri://localhost|https?://tauri\.localhost)$"
 
 app = FastAPI(
     title="Microbial Colony Counter API",
     description="Backend API for Colony Counter Mobile App",
-    version="0.1.0",
+    version="0.2.0",
     docs_url=os.environ.get("COLONY_ENABLE_DOCS", "1") == "1" and "/docs" or None,
     redoc_url=os.environ.get("COLONY_ENABLE_DOCS", "1") == "1" and "/redoc" or None,
 )
@@ -56,6 +72,7 @@ app = FastAPI(
 app.add_middleware(
     CORSMiddleware,
     allow_origins=_origins,
+    allow_origin_regex=_origin_regex,
     allow_credentials=False,
     allow_methods=["GET", "POST", "PUT", "OPTIONS"],
     allow_headers=["*"],
@@ -64,7 +81,26 @@ app.add_middleware(
 app.include_router(batch_router)
 
 # React 构建产物（frontend/dist），未构建时回退 legacy
-_STATIC_DIR = os.path.join(os.path.dirname(__file__), "static")
+def _resolve_static_dir() -> str:
+    candidates = []
+    try:
+        candidates.append(os.path.join(os.path.dirname(__file__), "static"))
+    except Exception:
+        pass
+    meipass = getattr(sys, "_MEIPASS", None)
+    if meipass:
+        candidates.append(os.path.join(meipass, "backend", "static"))
+        candidates.append(os.path.join(meipass, "static"))
+    if getattr(sys, "frozen", False):
+        exe_dir = os.path.dirname(sys.executable)
+        candidates.append(os.path.join(exe_dir, "backend", "static"))
+        candidates.append(os.path.join(exe_dir, "_internal", "backend", "static"))
+    for c in candidates:
+        if c and os.path.isfile(os.path.join(c, "index.html")):
+            return c
+    return candidates[0] if candidates else "backend/static"
+
+_STATIC_DIR = _resolve_static_dir()
 _LEGACY_HTML = os.path.join(_STATIC_DIR, "legacy-index.html.bak")
 _REACT_INDEX = os.path.join(_STATIC_DIR, "index.html")
 _ASSETS_DIR = os.path.join(_STATIC_DIR, "assets")
@@ -87,9 +123,9 @@ def make_thumbnail(image: np.ndarray, max_dim: int = 800) -> np.ndarray:
     new_w, new_h = int(w * ratio), int(h * ratio)
     return cv2.resize(image, (new_w, new_h), interpolation=cv2.INTER_AREA)
 
-def decode_image(file_bytes: bytes) -> np.ndarray:
-    """Decode image bytes to OpenCV format with size/content guards."""
-    return decode_image_safe(file_bytes)
+def decode_image(file_bytes: bytes) -> DecodedImage:
+    """Decode image bytes with size guards; oversized images are auto-downscaled."""
+    return decode_image_with_meta(file_bytes)
 
 
 def _encode_result_images(result: dict) -> tuple[str | None, str | None]:
@@ -127,7 +163,7 @@ async def count_colonies(
 
     try:
         contents = await image.read()
-        cv_image = decode_image(contents)
+        decoded = decode_image(contents)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     except Exception:
@@ -156,6 +192,15 @@ async def count_colonies(
         min_circularity,
         min_distance_from_edge,
     )
+
+    # 前端 ROI / 面积参数基于原图像素；超大图已缩小，需映射到工作分辨率
+    scale = decoded.scale
+    manual_roi = scale_roi_for_image(manual_roi, scale)
+    min_area, max_area, min_distance_from_edge = scale_area_params(
+        min_area, max_area, min_distance_from_edge, scale
+    )
+    decode_warnings = [decoded.warning] if decoded.warning else []
+    cv_image = decoded.image
 
     def _job():
         result = process_image(
@@ -187,7 +232,7 @@ async def count_colonies(
     response = CountResponse(
         count=result["count"],
         quality_score=None,
-        warnings=[],
+        warnings=decode_warnings,
         petri_circle=result.get("petri_circle"),
         processing_ms=processing_ms,
         colony_details=result.get("colony_details", [])
@@ -202,6 +247,7 @@ def _build_count_response(
     processing_ms: float,
     binary_b64: str | None,
     processed_b64: str | None,
+    extra_warnings: list[str] | None = None,
 ) -> CountResponse:
     """把 process_image / smart_count 结果转成 API 响应。"""
     cand = result.get("candidates")
@@ -211,6 +257,8 @@ def _build_count_response(
             for c in cand
         ]
     warnings = list(result.get("warnings") or [])
+    if extra_warnings:
+        warnings.extend(w for w in extra_warnings if w)
     if result.get("detector_fallback"):
         warnings.append("检测器不可用，已回退 OpenCV")
     response = CountResponse(
@@ -240,7 +288,7 @@ async def count_colonies_smart(
     start_time = time.time()
     try:
         contents = await image.read()
-        cv_image = decode_image(contents)
+        decoded = decode_image(contents)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     except Exception:
@@ -250,6 +298,8 @@ async def count_colonies_smart(
     from backend.core.detector import detect_colonies
 
     loop = asyncio.get_running_loop()
+    cv_image = decoded.image
+    extra_warnings = [decoded.warning] if decoded.warning else []
 
     def _job():
         if detector and detector != "opencv":
@@ -270,8 +320,165 @@ async def count_colonies_smart(
     result.setdefault("detector", detector or "opencv")
     result.setdefault("smart", True)
     return _build_count_response(
-        result, (time.time() - start_time) * 1000, binary_b64, processed_b64
+        result,
+        (time.time() - start_time) * 1000,
+        binary_b64,
+        processed_b64,
+        extra_warnings=extra_warnings,
     )
+
+
+def _export_dir():
+    from pathlib import Path
+
+    env = os.environ.get("COLONY_EXPORT_DIR", "").strip()
+    if env:
+        p = Path(env)
+        try:
+            p.mkdir(parents=True, exist_ok=True)
+            return p
+        except Exception:
+            pass
+
+    home = Path.home()
+    for c in (home / "Downloads", home / "下载", home / "Desktop", home / "桌面"):
+        if c.is_dir():
+            return c
+    dl = home / "Downloads"
+    try:
+        dl.mkdir(parents=True, exist_ok=True)
+        return dl
+    except Exception:
+        return home
+
+
+def _win_save_dialog(default_name: str) -> Optional[str]:
+    """Windows 另存为对话框，返回用户选择的完整路径；取消返回 None。"""
+    if sys.platform != "win32":
+        return None
+    try:
+        import ctypes
+        from ctypes import wintypes
+
+        class OPENFILENAME(ctypes.Structure):
+            _fields_ = [
+                ("lStructSize", wintypes.DWORD),
+                ("hwndOwner", wintypes.HWND),
+                ("hInstance", wintypes.HINSTANCE),
+                ("lpstrFilter", wintypes.LPCWSTR),
+                ("lpstrCustomFilter", wintypes.LPWSTR),
+                ("nMaxCustFilter", wintypes.DWORD),
+                ("nFilterIndex", wintypes.DWORD),
+                ("lpstrFile", wintypes.LPWSTR),
+                ("nMaxFile", wintypes.DWORD),
+                ("lpstrFileTitle", wintypes.LPWSTR),
+                ("nMaxFileTitle", wintypes.DWORD),
+                ("lpstrInitialDir", wintypes.LPCWSTR),
+                ("lpstrTitle", wintypes.LPCWSTR),
+                ("Flags", wintypes.DWORD),
+                ("nFileOffset", wintypes.WORD),
+                ("nFileExtension", wintypes.WORD),
+                ("lpstrDefExt", wintypes.LPCWSTR),
+                ("lCustData", wintypes.LPARAM),
+                ("lpfnHook", wintypes.LPVOID),
+                ("lpTemplateName", wintypes.LPCWSTR),
+                ("pvReserved", wintypes.LPVOID),
+                ("dwReserved", wintypes.DWORD),
+                ("FlagsEx", wintypes.DWORD),
+            ]
+
+        OFN_OVERWRITEPROMPT = 0x00000002
+        OFN_PATHMUSTEXIST = 0x00000800
+        OFN_NOCHANGEDIR = 0x00000008
+
+        name = sanitize_filename(default_name, default="export.bin")
+        lower = name.lower()
+        if lower.endswith(".csv"):
+            filt = "CSV 文件 (*.csv)\0*.csv\0所有文件 (*.*)\0*.*\0\0"
+            def_ext = "csv"
+        elif lower.endswith((".jpg", ".jpeg")):
+            filt = "JPEG 图片 (*.jpg)\0*.jpg;*.jpeg\0所有文件 (*.*)\0*.*\0\0"
+            def_ext = "jpg"
+        elif lower.endswith(".png"):
+            filt = "PNG 图片 (*.png)\0*.png\0所有文件 (*.*)\0*.*\0\0"
+            def_ext = "png"
+        else:
+            filt = "所有文件 (*.*)\0*.*\0\0"
+            def_ext = ""
+
+        filt_bytes = filt.encode("utf-16-le") + b"\x00\x00"
+        filt_buf = ctypes.create_string_buffer(filt_bytes)
+        file_buf = ctypes.create_unicode_buffer(1024)
+        file_buf.value = name
+
+        ofn = OPENFILENAME()
+        ofn.lStructSize = ctypes.sizeof(OPENFILENAME)
+        ofn.lpstrFilter = ctypes.cast(filt_buf, wintypes.LPCWSTR)
+        ofn.lpstrFile = ctypes.cast(file_buf, wintypes.LPWSTR)
+        ofn.nMaxFile = 1024
+        ofn.lpstrTitle = "保存文件"
+        ofn.lpstrDefExt = def_ext
+        ofn.Flags = OFN_OVERWRITEPROMPT | OFN_PATHMUSTEXIST | OFN_NOCHANGEDIR
+
+        comdlg32 = ctypes.windll.comdlg32
+        if not comdlg32.GetSaveFileNameW(ctypes.byref(ofn)):
+            return None
+        return file_buf.value or None
+    except Exception:
+        logger.exception("save dialog failed")
+        return None
+
+
+@app.post("/api/v1/export")
+async def export_file(
+    filename: str = Form(...),
+    content_b64: str = Form(...),
+    mode: str = Form("downloads"),
+):
+    """导出文件：mode=dialog 弹另存为；mode=downloads 写入下载目录。"""
+    import base64 as b64mod
+    from pathlib import Path
+
+    name = sanitize_filename(filename, default="export.bin")
+    try:
+        raw = b64mod.b64decode(content_b64, validate=False)
+    except Exception:
+        raise HTTPException(status_code=400, detail="内容不是有效的 base64")
+    if not raw:
+        raise HTTPException(status_code=400, detail="导出内容为空")
+    if len(raw) > 40 * 1024 * 1024:
+        raise HTTPException(status_code=400, detail="导出文件过大（上限 40MB）")
+
+    if mode == "dialog":
+        chosen = _win_save_dialog(name)
+        if not chosen:
+            return {"ok": False, "cancelled": True, "message": "已取消保存"}
+        dest = Path(chosen)
+        try:
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            dest.write_bytes(raw)
+        except Exception as e:
+            logger.exception("export dialog write failed")
+            raise HTTPException(status_code=500, detail=f"写入失败: {e}")
+        return {"ok": True, "path": str(dest), "filename": dest.name, "dir": str(dest.parent)}
+
+    folder = _export_dir()
+    dest = folder / name
+    if dest.exists():
+        stem, suffix = dest.stem, dest.suffix
+        i = 1
+        while True:
+            cand = folder / f"{stem}-{i}{suffix}"
+            if not cand.exists():
+                dest = cand
+                break
+            i += 1
+    try:
+        dest.write_bytes(raw)
+    except Exception as e:
+        logger.exception("export write failed")
+        raise HTTPException(status_code=500, detail=f"写入失败: {e}")
+    return {"ok": True, "path": str(dest), "filename": dest.name, "dir": str(folder)}
 
 
 @app.get("/", response_class=HTMLResponse)
@@ -309,5 +516,5 @@ if __name__ == "__main__":
     import uvicorn
     # 默认仅监听本机；局域网访问用 COLONY_HOST=0.0.0.0
     host = os.environ.get("COLONY_HOST", "127.0.0.1")
-    port = int(os.environ.get("COLONY_PORT", "8000"))
+    port = int(os.environ.get("COLONY_PORT", str(DEFAULT_PORT)))
     uvicorn.run(app, host=host, port=port)

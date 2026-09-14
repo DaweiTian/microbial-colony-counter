@@ -74,7 +74,12 @@ export function SwitchField({
         {hint ? <div className="mt-0.5 text-[12px] text-muted">{hint}</div> : null}
       </div>
       <label className="switch mt-0.5">
-        <input type="checkbox" checked={checked} onChange={(e) => onChange(e.target.checked)} />
+        <input
+          type="checkbox"
+          aria-label={label}
+          checked={checked}
+          onChange={(e) => onChange(e.target.checked)}
+        />
         <span className="switch-track" />
       </label>
     </div>
@@ -113,7 +118,7 @@ export function EmptyState({
   icon?: ReactNode
 }) {
   return (
-    <div className="flex flex-col items-center justify-center rounded-[12px] border border-dashed border-line bg-white/60 px-6 py-10 text-center">
+    <div className="flex flex-col items-center justify-center rounded-[12px] border border-dashed border-line bg-elevated/80 px-6 py-10 text-center">
       {icon ? <div className="mb-3 text-muted">{icon}</div> : null}
       <div className="text-[14px] font-semibold text-ink">{title}</div>
       {desc ? <div className="mt-1 max-w-sm text-[12px] leading-relaxed text-muted">{desc}</div> : null}
@@ -141,10 +146,10 @@ export function Badge({
   tone?: 'default' | 'primary' | 'accent' | 'warn'
 }) {
   const tones: Record<string, string> = {
-    default: 'bg-slate-100 text-slate-700',
+    default: 'bg-subtle text-ink',
     primary: 'bg-primary-soft text-primary',
     accent: 'bg-accent-soft text-accent',
-    warn: 'bg-amber-50 text-warn',
+    warn: 'bg-warn-soft text-warn',
   }
   return (
     <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-[11px] font-medium ${tones[tone]}`}>

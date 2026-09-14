@@ -4,8 +4,20 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>微生物菌落计数器</title>
-    <script type="module" crossorigin src="/assets/index-BFfdD2C1.js"></script>
-    <link rel="stylesheet" crossorigin href="/assets/index-D14RSbTz.css">
+    <script>
+      (function () {
+        try {
+          var t = localStorage.getItem('colony-counter-theme-v1')
+          if (t !== 'light' && t !== 'dark') {
+            t = window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'
+          }
+          document.documentElement.setAttribute('data-theme', t)
+          document.documentElement.style.colorScheme = t
+        } catch (e) {}
+      })()
+    </script>
+    <script type="module" crossorigin src="/assets/index-C8I6thP4.js"></script>
+    <link rel="stylesheet" crossorigin href="/assets/index-CLGblymS.css">
   </head>
   <body>
     <div id="root"></div>

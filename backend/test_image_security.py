@@ -8,9 +8,12 @@ from backend.image_security import (
     clamp_count_params,
     clamp_odd,
     decode_image_safe,
+    decode_image_with_meta,
     looks_like_image,
     parse_roi,
     sanitize_filename,
+    scale_area_params,
+    scale_roi_for_image,
 )
 
 
@@ -69,21 +72,60 @@ def test_sanitize_filename():
     assert ".." not in sanitize_filename("..\\..\\x.jpg")
 
 
-def test_decode_rejects_oversize(monkey=None):
-    # 1x1 PNG
-    png = (
-        b"\x89PNG\r\n\x1a\n"
-        b"\x00\x00\x00\rIHDR\x00\x00\x00\x01\x00\x00\x00\x01\x08\x02\x00\x00\x00"
-        b"\x90wS\xde\x00\x00\x00\x0cIDATx\x9cc\xf8\xcf\xc0\x00\x00\x00\x03\x00\x01"
-        b"\x00\x05\xfe\xd4\xef\x00\x00\x00\x00IEND\xaeB`\x82"
-    )
-    # 极大 side cap 应拒绝
+def test_reject_absolute_bomb():
+    import struct
+    import zlib
+
+    # 仅构造合法 PNG 头（声明 20000×20000），应在解码前被绝对阈值拒绝
+    def chunk(tag: bytes, data: bytes) -> bytes:
+        return (
+            struct.pack(">I", len(data))
+            + tag
+            + data
+            + struct.pack(">I", zlib.crc32(tag + data) & 0xFFFFFFFF)
+        )
+
+    raw = b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", struct.pack(">IIBBBBB", 20000, 20000, 8, 2, 0, 0, 0))
     try:
-        decode_image_safe(png, max_side=0)
-        # max_side=0 会让任何正尺寸都超限
-        raise AssertionError("should reject")
-    except ValueError:
-        pass
+        decode_image_with_meta(raw)
+        raise AssertionError("should reject bomb")
+    except ValueError as e:
+        assert "过大" in str(e) or "范围" in str(e)
+
+
+def test_downscale_synthetic():
+    import cv2
+    import numpy as np
+
+    # 构造 2000x1500 JPEG，目标限制 400px → 应自动缩小
+    img = np.zeros((1500, 2000, 3), dtype=np.uint8)
+    img[:] = (40, 80, 120)
+    cv2.circle(img, (1000, 750), 200, (200, 180, 60), -1)
+    ok, buf = cv2.imencode(".jpg", img, [cv2.IMWRITE_JPEG_QUALITY, 90])
+    assert ok
+    raw = buf.tobytes()
+
+    meta = decode_image_with_meta(raw, max_side=400, max_pixels=400 * 400)
+    h, w = meta.image.shape[:2]
+    assert max(h, w) <= 400
+    assert meta.was_resized is True
+    assert abs(meta.scale - w / 2000) < 1e-6
+    assert meta.warning and "缩小" in meta.warning
+    # 旧接口仍返回 ndarray
+    arr = decode_image_safe(raw, max_side=400, max_pixels=400 * 400)
+    assert arr.shape[:2] == (h, w)
+
+
+def test_scale_helpers():
+    roi = scale_roi_for_image((100, 200, 30), 0.5)
+    assert roi == (50, 100, 15)
+    rect = scale_roi_for_image((10, 20, 40, 80), 0.5)
+    assert rect == (5, 10, 20, 40)
+    assert scale_roi_for_image(None, 0.5) is None
+    amin, amax, edge = scale_area_params(100, 400, 20, 0.5)
+    assert amin == 25 and amax == 100 and edge == 10
+    # scale=1 时原样返回
+    assert scale_area_params(100, 400, 20, 1.0) == (100, 400, 20)
 
 
 if __name__ == "__main__":
@@ -93,5 +135,7 @@ if __name__ == "__main__":
     test_parse_roi_ok()
     test_parse_roi_bad()
     test_sanitize_filename()
-    test_decode_rejects_oversize()
+    test_reject_absolute_bomb()
+    test_downscale_synthetic()
+    test_scale_helpers()
     print("OK image_security")

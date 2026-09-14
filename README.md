@@ -271,16 +271,16 @@ npm install
 npm run build:sync
 cd ..
 
-# 3) 启动
-uvicorn backend.main:app --host 0.0.0.0 --port 8000
-# 浏览器打开 http://127.0.0.1:8000
+# 3) 启动（默认端口 18085，可用 COLONY_PORT 覆盖）
+uvicorn backend.main:app --host 127.0.0.1 --port 18085
+# 浏览器打开 http://127.0.0.1:18085
 ```
 
 开发热更新：
 
 ```bash
 # 终端 1：后端
-uvicorn backend.main:app --port 8000
+uvicorn backend.main:app --port 18085
 # 终端 2：前端
 cd frontend && npm run dev
 # 打开 http://127.0.0.1:5173 （/api 代理到 8000）

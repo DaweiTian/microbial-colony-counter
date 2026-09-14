@@ -1,8 +1,9 @@
-[source.crates-io]
-replace-with = "rsproxy-sparse"
-
-[source.rsproxy-sparse]
-registry = "sparse+https://rsproxy.cn/index/"
+# 使用官方 crates.io；若网络受限可临时改为 rsproxy 镜像
+# [source.crates-io]
+# replace-with = "rsproxy-sparse"
+# [source.rsproxy-sparse]
+# registry = "sparse+https://rsproxy.cn/index/"
 
 [net]
-retry = 3
+retry = 5
+git-fetch-with-cli = true

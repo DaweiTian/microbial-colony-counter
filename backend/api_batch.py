@@ -160,8 +160,8 @@ class CalibrateRef(BaseModel):
 
 class CalibrateRequest(BaseModel):
     refs: List[CalibrateRef] = Field(default_factory=list)
-    max_evals: int = Field(40, ge=1, le=40)
-    time_limit_sec: float = Field(60.0, ge=5.0, le=60.0)
+    max_evals: int = Field(40, ge=1, le=60)
+    time_limit_sec: float = Field(60.0, ge=5.0, le=120.0)
 
 
 @router.post("/refs")

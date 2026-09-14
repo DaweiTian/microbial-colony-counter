@@ -28,16 +28,41 @@ function clampCircle(s: Extract<RoiShape, { type: 'circle' }>, cw: number, ch: n
 
 export function RoiCanvas({ imageEl, mode, shape, onChange, overlaySrc }: Props) {
   const canvasRef = useRef<HTMLCanvasElement>(null)
+  const wrapRef = useRef<HTMLDivElement>(null)
   const dragRef = useRef<DragMode>(null)
   const startRef = useRef<{ x: number; y: number } | null>(null)
   const offsetRef = useRef<{ x: number; y: number } | null>(null)
   const [size, setSize] = useState({ w: 0, h: 0 })
+  const [box, setBox] = useState({ w: 0, h: 0 })
+
+  // 容器尺寸观察：图片按 contain 自适应，避免超大图撑出滚动条
+  useEffect(() => {
+    const el = wrapRef.current
+    if (!el) return
+    const measure = () => {
+      setBox({ w: el.clientWidth, h: el.clientHeight })
+    }
+    measure()
+    const ro = new ResizeObserver(measure)
+    ro.observe(el)
+    return () => ro.disconnect()
+  }, [])
+
+  const nw = imageEl?.naturalWidth || imageEl?.width || 0
+  const nh = imageEl?.naturalHeight || imageEl?.height || 0
+  const fitScale =
+    nw > 0 && nh > 0 && box.w > 0 && box.h > 0
+      ? Math.min(box.w / nw, box.h / nh, 1)
+      : 0
+  const displayW = fitScale > 0 ? Math.max(1, Math.floor(nw * fitScale)) : 0
+  const displayH = fitScale > 0 ? Math.max(1, Math.floor(nh * fitScale)) : 0
 
   const redraw = useCallback(() => {
     const canvas = canvasRef.current
     if (!canvas || !imageEl) return
     const ctx = canvas.getContext('2d')
     if (!ctx) return
+    // 逻辑分辨率仍用原图，显示由 CSS 缩放，ROI 坐标体系不变
     canvas.width = imageEl.naturalWidth || imageEl.width
     canvas.height = imageEl.naturalHeight || imageEl.height
     setSize({ w: canvas.width, h: canvas.height })
@@ -157,29 +182,36 @@ export function RoiCanvas({ imageEl, mode, shape, onChange, overlaySrc }: Props)
   }
 
   return (
-    <div className="relative overflow-hidden rounded-lg bg-stage">
-      <img
-        src={overlaySrc || imageEl?.src || ''}
-        alt="stage"
-        className="block w-full select-none"
-        draggable={false}
-      />
-      <canvas
-        ref={canvasRef}
-        className="absolute inset-0 h-full w-full cursor-crosshair touch-none"
-        style={{ display: size.w ? 'block' : 'none' }}
-        onMouseDown={(e) => onDown(e.clientX, e.clientY)}
-        onMouseMove={(e) => onMove(e.clientX, e.clientY)}
-        onMouseUp={onUp}
-        onMouseLeave={onUp}
-        onTouchStart={(e) => {
-          if (e.touches[0]) onDown(e.touches[0].clientX, e.touches[0].clientY)
-        }}
-        onTouchMove={(e) => {
-          if (e.touches[0]) onMove(e.touches[0].clientX, e.touches[0].clientY)
-        }}
-        onTouchEnd={onUp}
-      />
+    <div
+      ref={wrapRef}
+      className="stage-bg relative flex h-full w-full items-center justify-center overflow-hidden rounded-lg"
+    >
+      {displayW > 0 && (
+        <div className="relative" style={{ width: displayW, height: displayH }}>
+          <img
+            src={overlaySrc || imageEl?.src || ''}
+            alt="stage"
+            className="block h-full w-full select-none"
+            draggable={false}
+          />
+          <canvas
+            ref={canvasRef}
+            className="absolute inset-0 h-full w-full cursor-crosshair touch-none"
+            style={{ display: size.w ? 'block' : 'none' }}
+            onMouseDown={(e) => onDown(e.clientX, e.clientY)}
+            onMouseMove={(e) => onMove(e.clientX, e.clientY)}
+            onMouseUp={onUp}
+            onMouseLeave={onUp}
+            onTouchStart={(e) => {
+              if (e.touches[0]) onDown(e.touches[0].clientX, e.touches[0].clientY)
+            }}
+            onTouchMove={(e) => {
+              if (e.touches[0]) onMove(e.touches[0].clientX, e.touches[0].clientY)
+            }}
+            onTouchEnd={onUp}
+          />
+        </div>
+      )}
     </div>
   )
 }

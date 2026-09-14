@@ -66,11 +66,19 @@ export type RoiShape =
 export type HistoryItem = {
   id: string
   name: string
+  /** 用户自定义显示名；空则用文件名 */
+  label?: string | null
   count: number
   timeMs: number
   strategy?: string | null
   createdAt: number
   thumb?: string | null
+  /** 完整计数结果（不含超大 base64 时可回放详情；图片用 thumb） */
+  result?: CountResponse | null
+  /** 保存时的原图 dataURL，有则可直接回放舞台 */
+  sourceImage?: string | null
+  /** 是否为圆形裁切后计数 */
+  cropped?: boolean
 }
 
 export type RefPlate = {

@@ -17,7 +17,7 @@ function detectTauri(): boolean {
 
 const API_BASE: string =
   (import.meta.env.VITE_API_BASE as string | undefined) ||
-  (detectTauri() ? 'http://127.0.0.1:8000' : '')
+  (detectTauri() ? 'http://127.0.0.1:18085' : '')
 
 function apiUrl(path: string) {
   return `${API_BASE}${path}`
@@ -176,25 +176,137 @@ export async function apiBatchRun(
   return res.json()
 }
 
+function bufferToBase64(buf: ArrayBuffer): string {
+  const bytes = new Uint8Array(buf)
+  let binary = ''
+  const chunk = 0x8000
+  for (let i = 0; i < bytes.length; i += chunk) {
+    binary += String.fromCharCode(...bytes.subarray(i, i + chunk))
+  }
+  return btoa(binary)
+}
+
+/** 不用 fetch(dataUrl)：Tauri CSP connect-src 不含 data:，会 Failed to fetch */
+function dataUrlToBlob(dataUrl: string): Blob {
+  const comma = dataUrl.indexOf(',')
+  if (comma < 0) throw new Error('无效的 data URL')
+  const meta = dataUrl.slice(0, comma)
+  const b64 = dataUrl.slice(comma + 1)
+  const mime = /data:([^;,]+)/.exec(meta)?.[1] || 'application/octet-stream'
+  const bin = atob(b64)
+  const arr = new Uint8Array(bin.length)
+  for (let i = 0; i < bin.length; i++) arr[i] = bin.charCodeAt(i)
+  return new Blob([arr], { type: mime })
+}
+
+async function toBlob(data: Blob | string, mime: string): Promise<Blob> {
+  if (typeof data === 'string') {
+    if (data.startsWith('data:')) return dataUrlToBlob(data)
+    return new Blob([data], { type: mime })
+  }
+  return data
+}
+
+/**
+ * 弹出系统「另存为」让用户选路径和文件名。
+ * mode=dialog 走后端 Windows 保存对话框；取消返回 cancelled。
+ */
+export async function saveFileWithDialog(
+  filename: string,
+  data: Blob | string,
+  mime = 'application/octet-stream',
+): Promise<{ ok: boolean; cancelled?: boolean; path?: string; message: string }> {
+  try {
+    const blob = await toBlob(data, mime)
+    const buf = await blob.arrayBuffer()
+    const b64 = bufferToBase64(buf)
+    const fd = new FormData()
+    fd.append('filename', filename)
+    fd.append('content_b64', b64)
+    fd.append('mode', 'dialog')
+    const res = await fetch(apiUrl('/api/v1/export'), { method: 'POST', body: fd })
+    const body = (await res.json().catch(() => ({}))) as {
+      ok?: boolean
+      cancelled?: boolean
+      path?: string
+      message?: string
+      detail?: string
+    }
+    if (body.cancelled) {
+      return { ok: false, cancelled: true, message: '已取消保存' }
+    }
+    if (res.ok && body.ok) {
+      return { ok: true, path: body.path, message: `已保存到 ${body.path}` }
+    }
+    return {
+      ok: false,
+      message: body.detail || body.message || `保存失败 HTTP ${res.status}`,
+    }
+  } catch (e) {
+    return { ok: false, message: e instanceof Error ? e.message : String(e) }
+  }
+}
+
+/** 直接写入下载目录（无对话框）；失败回退 DOM 下载 */
+export async function saveFile(
+  filename: string,
+  data: Blob | string,
+  mime = 'application/octet-stream',
+): Promise<{ ok: boolean; path?: string; message: string }> {
+  try {
+    const blob = await toBlob(data, mime)
+    const buf = await blob.arrayBuffer()
+    const b64 = bufferToBase64(buf)
+    const fd = new FormData()
+    fd.append('filename', filename)
+    fd.append('content_b64', b64)
+    fd.append('mode', 'downloads')
+    const res = await fetch(apiUrl('/api/v1/export'), { method: 'POST', body: fd })
+    if (res.ok) {
+      const data = (await res.json()) as { path?: string; dir?: string; filename?: string }
+      return {
+        ok: true,
+        path: data.path,
+        message: `已保存到 ${data.path || data.dir || '下载目录'}`,
+      }
+    }
+    const detail = await parseError(res)
+    downloadBlobFallback(blob, filename)
+    return { ok: true, message: `已触发浏览器下载（本地保存失败：${detail}）` }
+  } catch (e) {
+    try {
+      const blob = await toBlob(data, mime)
+      downloadBlobFallback(blob, filename)
+      return { ok: true, message: '已触发浏览器下载' }
+    } catch (e2) {
+      return { ok: false, message: e2 instanceof Error ? e2.message : String(e2) }
+    }
+  }
+}
+
+function downloadBlobFallback(blob: Blob, filename: string) {
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = filename
+  a.rel = 'noopener'
+  a.style.display = 'none'
+  document.body.appendChild(a)
+  a.click()
+  document.body.removeChild(a)
+  window.setTimeout(() => URL.revokeObjectURL(url), 15000)
+}
+
 export function downloadText(
   filename: string,
   content: string,
   mime = 'text/plain',
 ) {
-  const blob = new Blob([content], { type: mime })
-  const url = URL.createObjectURL(blob)
-  const a = document.createElement('a')
-  a.href = url
-  a.download = filename
-  a.click()
-  URL.revokeObjectURL(url)
+  void saveFile(filename, content, mime)
 }
 
 export function downloadDataUrl(filename: string, dataUrl: string) {
-  const a = document.createElement('a')
-  a.href = dataUrl
-  a.download = filename
-  a.click()
+  void saveFile(filename, dataUrl)
 }
 
 function csvEscape(value: string | number): string {
