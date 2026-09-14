@@ -1,269 +1,67 @@
 # 微生物菌落计数器
 
-[![Python](https://img.shields.io/badge/Python-3.7+-blue.svg)](https://www.python.org/)
+[![Python](https://img.shields.io/badge/Python-3.10+-blue.svg)](https://www.python.org/)
 [![OpenCV](https://img.shields.io/badge/OpenCV-4.x-green.svg)](https://opencv.org/)
 [![License](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
-[![Release](https://img.shields.io/badge/Release-v1.2.0-orange.svg)](https://github.com/DaweiTian/microbial-colony-counter)
+[![Release](https://img.shields.io/badge/Release-v0.2.0-orange.svg)](https://github.com/DaweiTian/microbial-colony-counter/releases/tag/v0.2.0)
 
-一个功能强大的微生物培养皿菌落自动计数工具，支持桌面 GUI、Web 局域网访问、**一键智能计数**、密菌落粘连分离，以及基于 **参考平板真值的批次参数学习**。并预留本地 **YOLO（ONNX）** 检测与评估管线。
+培养皿菌落自动计数工具：现代 Web 工作台 + 本地 Python 后端，可选 Tauri 桌面安装包。支持一键智能计数、皿内圆形裁切、参数调节、ROI、批次标定、历史回放与导出。
 
 **仓库**: [https://github.com/DaweiTian/microbial-colony-counter](https://github.com/DaweiTian/microbial-colony-counter)
 
----
-
-## ✨ 功能特点
-
-- 🖼️ **多格式支持**：JPG、PNG、BMP、TIFF 等
-- ⚡ **一键智能计数（v1.2）**：自动检皿 + 估参 + 多策略选优（经典轮廓 / 分水岭标签 / 距离变换峰值）
-- 🔍 **智能计数**：基于 OpenCV 的图像处理自动检测与计数
-- 💧 **密菌落分离（v1.2）**：标签直计数 + 距离场 NMS，改善粘连合并
-- ⚙️ **参数调节**：模糊、阈值、面积、边缘距离、`segment_mode` 等
-- 🎯 **区域选择**：手动矩形/圆形 ROI
-- 🧫 **培养皿检测**：自动检测圆形培养皿区域
-- 🔵 **圆度过滤**：过滤非圆形杂质
-- 📊 **实时显示** / 📝 **菌落详情** / 💾 **结果保存**
-- 📱 **Web App**：手机浏览器局域网访问
-- ⚡ **性能优化**：缩略图 + JPEG 压缩 + 异步线程池
-- 📦 **批次参数学习（v1.1.1 / v1.1.2）**：用参考盘人工计数数据搜索本批次最优参数，再批量处理其余平板
-- 🧪 **离线评估（v1.2）**：`python -m backend.eval.run`，策略对比与误差报告
-- 🤖 **YOLO 准备（v1.2）**：伪标签导出、训练/ONNX 导出骨架、本地推理回退
+**当前版本**: **v0.2.0**
 
 ---
 
-## ⚡ 一键智能计数（v1.2）
+## 功能概览
 
-不想调参时，直接用智能模式：
+### 单图计数
 
-| 入口 | 操作 |
-|------|------|
-| 桌面 | 工具栏 **「⚡ 一键智能」** |
-| Web | 按钮 **「⚡ 一键智能」**，或 `POST /api/v1/count_smart` |
+- 上传 / 拖拽 / Ctrl+V 粘贴图片（JPG、PNG、BMP、TIFF、WebP）
+- **一键智能计数**：自动估参 + 多策略选优
+- **按参数手动计数**：二值化、模糊、面积、边缘距离、圆度、分水岭等
+- **ROI**：全图 / 矩形 / 圆形，可缩放、键盘微调
+- **皿内圆形裁切**：按原图分辨率裁出培养皿并遮罩圆外背景，减少整图压缩导致的模糊
+- 超大图自动等比缩小后再计数，并提示缩放比例
+- 原图 / 结果 / 二值切换；结果卡含菌落数、策略、警告、候选对比、详情表
+- 导出菌落详情 CSV、下载结果图（系统「另存为」）
 
-流程简述：自动检测培养皿 → 从图像统计估参 → 多策略试跑 → 按形状/面积/密度启发式选优 → 回填参数便于微调。
+### 批次标定
 
-密菌落盘通常会选中 **labels（分水岭标签）**；稀疏盘常选 **default_petri（经典+皿检测）**。
+- 上传 1～5 块参考盘，填写人工计数 N，可选点选典型菌落
+- 图片默认适配窗口，支持缩放 / 平移；点选在任意缩放下可用
+- 联合搜索本批次参数，批量计数其余平板，导出 CSV
 
-API 示例：
+### 界面与桌面
+
+- 浅色 / 深色主题切换（跟随系统或手动）
+- 布局：左侧选图 + 历史，右侧舞台；参数悬浮面板；智能计数固定底部
+- 历史本地保存、回放、重命名、单删 / 批删、批量导出 CSV
+- Tauri 桌面壳：无系统标题栏、自绘顶栏、版本徽章、默认最大化
+- 安装包带本地 sidecar 后端，双击即可用
+
+### 算法能力
+
+- OpenCV 经典轮廓 / 分水岭标签 / 距离场峰值等多策略
+- 培养皿圆形检测（大图先降到约 1000px 再 Hough，避免卡死）
+- 可选 YOLO ONNX 检测器骨架（无权重时自动回退 OpenCV）
+
+---
+
+## 快速开始
+
+### 方式一：安装包（推荐）
+
+从 [Releases](https://github.com/DaweiTian/microbial-colony-counter/releases) 下载  
+`微生物菌落计数器_0.2.0_x64-setup.exe`，安装后双击运行。
+
+应用会自动拉起本地后端（默认 `http://127.0.0.1:18085`），无需单独启动 Python。
+
+### 方式二：源码运行 Web 界面
 
 ```bash
-curl -F "image=@test1.jpg" http://127.0.0.1:8000/api/v1/count_smart
-# 可选检测器（需本地 ONNX 权重，否则回退 OpenCV）：
-curl -F "image=@test1.jpg" -F "detector=yolo-onnx" http://127.0.0.1:8000/api/v1/count_smart
-```
-
----
-
-## 🧪 离线评估
-
-```bash
-# 在仓库根目录
-python -m backend.eval.run
-python -m backend.eval.run --case test1
-```
-
-- 用例与真值：`backend/eval/cases/*.json`（`count` 可为 `null` 表示暂无可靠人工真值）
-- 报告输出：`backend/eval/out/report.md`
-
-请用**人工计数**更新真值后再比较策略；不要把「默认算法输出」当作 GT。
-
----
-
-## 🤖 YOLO 数据与训练（准备阶段）
-
-核心计数仍以本地 OpenCV 为主；YOLO 为可选增强。约定见 `datasets/colony/README.md`。
-
-```bash
-# 1) 伪标签导出（机器先框，人工再改错）
-python -m backend.yolo.export_dataset --image-dir /path/to/photos --out datasets/colony
-
-# 2) 安装可选依赖并训练
-pip install -r requirements-ml.txt
-python -m backend.yolo.train --data datasets/colony/dataset.yaml --epochs 50
-
-# 3) 导出 ONNX 供本地推理
-python -m backend.yolo.to_onnx --weights runs/detect/colony/weights/best.pt --out models/colony_yolo.onnx
-```
-
-- 标注格式：YOLO txt，单类 `0=colony`
-- 建议：可用 80～150 张真实盘图（覆盖稀疏/密菌落、笔迹、反光）
-- 无权重时 `yolo-onnx` 自动回退 OpenCV，不影响旧功能
-
----
-
-## 🧠 核心思路：根据参考平板计数数据学习参数
-
-### 为什么需要「学习」？
-
-传统自动计数依赖一组固定默认参数（模糊核、阈值、最小/最大面积、圆度、是否分水岭等）。实际使用中常见问题是：
-
-1. **拍照条件敏感**：光照、对焦、角度、背景不同，同一套默认参数表现差异很大。  
-2. **菌落密集时变差**：粘连、重叠使固定阈值/分水岭难以兼顾。  
-3. **实验往往成批进行**：一次要数十几个平板，同一批次的菌种、培养基、拍摄方式通常 **高度相似**。
-
-因此更合理的做法不是追求「一张图打天下」的万能参数，而是：
-
-> **用少量已有真值的参考盘，为本批次自动搜索一套参数 theta\*，再把 theta\* 应用到其余平板。**
-
-这不是云端大模型训练，而是 **批次内的参数标定 / 少样本校准（Few-shot Calibration）**：可解释、可本地运行、与现有 OpenCV 流水线兼容。
-
-### 学习什么？
-
-软件在合理范围内搜索 `process_image` 的超参数，例如：
-
-| 参数类别 | 示例 |
-|----------|------|
-| 预处理 | 高斯模糊核大小 |
-| 二值化 | 自适应/手动阈值及相关常数 |
-| 过滤 | 最小/最大菌落面积、边缘距离、最小圆度 |
-| 结构 | 是否检测培养皿圆、是否启用分水岭 |
-
-记参考盘图像为 **I**，人工真值菌落数为 **N**，在参数 **theta** 下的自动计数记为 **count(I, theta)**。
-
-**单盘目标**：在候选参数中找到一套最优参数 **theta\***，使自动计数尽量接近人工真值，也就是让下面这个差值尽可能小：
-
-```text
-| count(I, theta) - N |
-
-单盘搜索目标：
-  找到 theta*，使  | count(I, theta) - N |  最小
-```
-
-实现上还会加入相对误差、可选点匹配分等，避免「数对了但圈错了」的假准。
-
-### 真值可以怎样提供？
-
-| 方式 | 用户操作 | 信息量 | 适用 |
-|------|----------|--------|------|
-| **图 + 总数 N（主路径）** | 上传参考图，填写人工数完的 N | 只有全局数量 | 最快；多盘联合首选 |
-| **部分点选 + N（增强）** | 在图上点若干典型菌落，并填 N | 数量 + 局部尺度/位置 | 密菌落或杂质多时更稳 |
-| **全量点选** | 点完所有菌落（N = 点数） | 最强位置约束 | 单盘精标参考 |
-
-点选不是必须：默认推荐 **图 + N**；点选用于增强面积先验与检测中心匹配。
-
-### 多参考盘联合学习（v1.1.2）
-
-仅用 1 块盘拟合时，参数可能 **过拟合该盘**（换盘误差变大）。  
-v1.1.2 支持 **1～5 块参考盘（建议 2～5）同时参与搜索**。
-
-**多盘目标**：对 K 块参考盘同时评估，使各盘误差的 **平均值** 最小，得到一套共享参数 **theta\***：
-
-```text
-多盘搜索目标：
-  找到 theta*，使下面平均值最小
-
-  (1/K) * [ Loss_1 + Loss_2 + ... + Loss_K ]
-
-其中第 k 块盘：
-  Loss_k = 由  count(I_k, theta)  与  真值 N_k  （及可选点选）算出的误差
-```
-
-- 每块盘：图片 + 真值 **N_k**（点选可选）  
-- 优化目标：各盘误差的 **平均值** 最小  
-- 输出：一套共享参数 theta\*，以及 **每盘** 的「预测 vs 真值」报告  
-
-```text
-┌─────────────┐   ┌─────────────┐        ┌─────────────┐
-│ 参考盘 1    │   │ 参考盘 2    │  ...   │ 参考盘 K    │
-│ 图 + N₁     │   │ 图 + N₂     │        │ 图 + N_K    │
-│ (可选点选)  │   │ (可选点选)  │        │ (可选点选)  │
-└──────┬──────┘   └──────┬──────┘        └──────┬──────┘
-       │                 │                      │
-       └────────────┬────┴──────────────────────┘
-                    ▼
-         参数搜索（联合最小化平均误差）
-                    ▼
-           最优参数 theta*
-                    ▼
-    ┌──────────────────────────────────────┐
-    │ 其余平板 × 多张 → 批量 count(·, theta*) │
-    │ 导出 CSV / 参数 JSON / 应用到主窗口     │
-    └──────────────────────────────────────┘
-```
-
-### 使用边界（请务必了解）
-
-- 学习结果 **按批次有效**：换菌种、培养基、拍摄设备或光照后应 **重新标定**。  
-- 参考盘与待测盘应尽量 **同条件**；差异过大时联合误差会升高（报告中的最大盘误差会提示）。  
-- 仅拟合总数时缺少位置信息，密菌落建议对 1～2 块难盘做点选增强。  
-- 这是 **经典视觉参数搜索**，不是深度学习；不上传数据到云端。
-
-### 与「纯自动默认参数」的对比
-
-| | 默认参数直接数 | 参考盘参数学习 |
-|--|----------------|----------------|
-| 准备成本 | 无 | 人工数 1～5 块参考盘 |
-| 同批次多盘 | 可能整体偏多/偏少 | 向真值对齐后批量更稳 |
-| 可解释性 | 需手调滑条 | 自动给出 theta\* 与每盘误差 |
-| 适用场景 | 单张试探、条件标准 | **一次数十几个平板的实验批次** |
-
----
-
-## 📋 最近两次更新详解
-
-### v1.1.2 — 多参考盘联合标定（当前）
-
-**解决的问题**：v1.1.1 只能用 **一块** 参考盘学习；真值信息少，容易贴合单盘却在其余盘上漂移。
-
-**新增能力**：
-
-| 能力 | 说明 |
-|------|------|
-| 多参考盘 | 最多 **5** 块，建议 **2～5** 块 |
-| 主路径 | 每块 **图 + 人工 N** |
-| 点选增强 | 列表切换当前盘，左键加点 / 右键删点（可选） |
-| 联合目标 | 最小化各盘平均相对误差 |
-| 结果透明 | 报告每盘预测数、真值、单盘误差与全局平均/最大误差 |
-| 上限保护 | 超过 5 块拒绝并提示 |
-
-**工作台变化**：由「加载单张参考盘」改为 **参考盘列表**（添加 / 移除 / 切换 / 保存 N），按钮为 **「联合学习 / 标定」**。
-
-**模块**：`calibrate_multi()`（`backend/core/calibrator.py`），单盘 `calibrate()` 内部复用同一套逻辑。
-
----
-
-### v1.1.1 — 批次标定工作台（首版学习闭环）
-
-**解决的问题**：只有默认参数或手滑调参，成批实验效率低、重复劳动多。
-
-**引入的闭环**：
-
-1. 打开桌面主程序 → **「📦 批次标定」**  
-2. 提供参考盘真值（当时支持三种策略：部分点选+N / 全量点选 / 仅 N）  
-3. **参数搜索** 得到 theta\*  
-4. **批量计数** 其余平板  
-5. 导出 **CSV**、保存 **参数 JSON**、可选 **应用到主窗口** 继续单图流程  
-
-**新增文件**（该版本起）：
-
-- `backend/core/calibrator.py` — 参数搜索与评分  
-- `backend/core/batch.py` — 多图套用同一套参数  
-- `backend/core/pointset.py` — 点集与标注绘制  
-- `batch_workbench.py` — 桌面工作台  
-- `开发计划-批次标定.md` — 设计说明  
-
-**兼容原则（两版均遵守）**：不删除原有单图自动计数、ROI、培养皿检测、分水岭、圆度、Web 等功能；批次学习为 **增量入口**。
-
----
-
-## 🚀 快速开始
-
-### 方法一：桌面版
-
-```bash
+# 1) Python 依赖
 pip install -r requirements.txt
-python main.py
-```
-
-工具栏 **「⚡ 一键智能」** 自动估参计数；**「▶️ 处理」** 使用当前滑条参数；**「📦 批次标定」** 打开参数学习工作台。
-
-### 方法二：Web 主界面（React，推荐）
-
-主界面已改为 **Vite + React + TypeScript + Tailwind** 科技感工作台（单图计数 + 批次标定）。
-
-```bash
-# 1) 后端
-pip install -r requirements.txt
-# 若缺 FastAPI 相关包：pip install fastapi "uvicorn[standard]" python-multipart
 
 # 2) 构建前端并同步到 backend/static
 cd frontend
@@ -271,7 +69,7 @@ npm install
 npm run build:sync
 cd ..
 
-# 3) 启动（默认端口 18085，可用 COLONY_PORT 覆盖）
+# 3) 启动后端（默认端口 18085）
 uvicorn backend.main:app --host 127.0.0.1 --port 18085
 # 浏览器打开 http://127.0.0.1:18085
 ```
@@ -281,173 +79,202 @@ uvicorn backend.main:app --host 127.0.0.1 --port 18085
 ```bash
 # 终端 1：后端
 uvicorn backend.main:app --port 18085
-# 终端 2：前端
+
+# 终端 2：前端（/api 代理到 18085）
 cd frontend && npm run dev
-# 打开 http://127.0.0.1:5173 （/api 代理到 8000）
+# 打开 http://127.0.0.1:5173
 ```
 
-Windows 也可用 `python web_launcher.py` 或 `start_web_app.bat` 启动后端后访问上述地址。手机与电脑同一局域网即可。
+Windows 也可用 `start_web_app.ps1` / `python web_launcher.py`。
 
-### 方法三：Tauri 桌面壳
+### 方式三：Tauri 桌面开发
 
 ```powershell
-# 先保证后端 :8000 在跑
+# 前端已 build:sync 后
 cd desktop
 npm install
 npm run tauri:dev
 ```
 
-详见 `desktop/README.md`。Python 后端仍需单独启动（本期无 sidecar 离线打包）。
+详见 [`desktop/README.md`](desktop/README.md)。
 
-### 方法四：打包
+### 方式四：打包安装包
 
-```bash
-python build.py
-# 或
-python optimize_build.py
+```powershell
+python package_release.py --build
+# 交付物：dist/installer/微生物菌落计数器_0.2.0_x64-setup.exe
 ```
 
-输出在 `dist/`。
+脚本会依次构建前端、PyInstaller sidecar、Tauri NSIS，并把安装包收集到 `dist/installer/`。
 
 ---
 
-## 📦 批次参数学习 — 操作步骤（v1.1.2）
+## 使用提示
 
-1. 运行 `python main.py`，点击 **「📦 批次标定」**  
-2. **➕ 添加参考盘…**（可多选，最多 5 块），为每块输入人工菌落数 **N**  
-3. （可选）在左侧列表选中某盘，**左键点选** 典型菌落作增强  
-4. 点击 **「联合学习 / 标定」**，等待搜索结束，查看各盘误差  
-5. **添加其余平板** → **批量计数** → 导出 CSV / 保存参数 JSON  
-6. 可选：**应用到主窗口参数**，用学到的参数做单张细调  
+### 皿内裁切（推荐大图）
 
-**点选**：左键加点 · 右键删最近点 · Ctrl+Z 撤销  
+1. 底栏点「皿内裁切」进入圆形 ROI  
+2. 拖拽 / 缩放圆，尽量贴合培养皿边缘  
+3. 点「裁切皿内·智能」或「裁切·按参数」  
 
-**冒烟测试**：
+裁切在**原图分辨率**上进行，圆外涂为皿缘均色，有利于阈值分割。
 
-```bash
-python backend/test_calibrator.py
-```
+### 大图说明
 
-设计文档：[`开发计划-批次标定.md`](开发计划-批次标定.md)
+- 后端默认将最长边限制在约 8000px、约 25MP，超出会自动缩小并在结果中提示  
+- 舞台图片按容器自适应显示，不会撑出滚动条  
+
+### 历史与导出
+
+- 记录保存在**本机浏览器 localStorage**，不会上传  
+- 导出走系统「另存为」，可自定义路径与文件名  
+- 可用环境变量 `COLONY_EXPORT_DIR` 指定「直接写入」模式的目录（默认尝试「下载」）  
+
+### 批次标定要点
+
+- 换菌种、培养基或拍摄条件后应重新标定  
+- 建议 2～5 块参考盘联合学习，密菌落可对难盘做点选增强  
+
+设计说明见 [`开发计划-批次标定.md`](开发计划-批次标定.md)。
 
 ---
 
-## 📖 单图自动计数（原有功能）
+## API（摘要）
 
-1. 选择图片 → 调整参数 →（可选）选区 → 处理  
-2. 查看结果 / 菌落详情 → 保存报告  
+默认监听 `http://127.0.0.1:18085`。
 
-| 类别 | 参数 | 说明 |
+| 方法 | 路径 | 说明 |
 |------|------|------|
-| 预处理 | 高斯模糊核 | 去噪，建议 3–15 奇数 |
-| 二值化 | 手动 / 自适应 | 光照不均时优先自适应 |
-| 培养皿 | 自动检测圆 | 只统计皿内 |
-| 过滤 | 面积、边缘距离 | 去噪点与边缘伪影 |
-| 高级 | 分水岭、最小圆度 | 粘连与形状 |
+| POST | `/api/v1/count` | 按参数计数（可带 ROI） |
+| POST | `/api/v1/count_smart` | 一键智能计数 |
+| POST | `/api/v1/export` | 保存导出文件到本机 |
+| POST | `/api/v1/batch/*` | 参考盘 / 标定 / 批量 |
+| GET | `/health` | 健康检查 |
+
+```bash
+curl -F "image=@test1.jpg" http://127.0.0.1:18085/api/v1/count_smart
+```
+
+交互式文档：启动后访问 `http://127.0.0.1:18085/docs`（可用 `COLONY_ENABLE_DOCS=0` 关闭）。
 
 ---
 
-## 🛠️ 开发环境
+## 离线评估（可选）
 
-- **Python** 3.7+  
-- **系统**：Windows 7+ / macOS 10.12+ / Linux  
+```bash
+python -m backend.eval.run
+python -m backend.eval.run --case test1
+```
+
+用例与真值：`backend/eval/cases/*.json`；报告：`backend/eval/out/report.md`。请用人工计数作为真值。
+
+---
+
+## YOLO 数据与训练（可选）
+
+核心计数以 OpenCV 为主，YOLO 为可选增强：
+
+```bash
+python -m backend.yolo.export_dataset --image-dir /path/to/photos --out datasets/colony
+pip install -r requirements-ml.txt
+python -m backend.yolo.train --data datasets/colony/dataset.yaml --epochs 50
+python -m backend.yolo.to_onnx --weights runs/detect/colony/weights/best.pt --out models/colony_yolo.onnx
+```
+
+无权重时 `detector=yolo-onnx` 会自动回退 OpenCV。
+
+---
+
+## 环境要求
+
+- **Python** 3.10+（开发验证环境为 3.13）
+- **Node.js** 18+（构建前端 / Tauri）
+- **系统**：Windows 10/11（安装包）；Linux/macOS 可源码运行 Web 版
 
 ```text
-opencv-python>=4.5.0
-numpy>=1.19.0
-Pillow>=8.0.0
-fastapi>=0.68.0
-uvicorn>=0.15.0
-psutil>=5.8.0
+opencv-python>=4.5.0,<5
+numpy>=1.19.0,<3
+Pillow>=8.0.0,<12
+fastapi>=0.100.0,<1
+uvicorn[standard]>=0.23.0,<1
+python-multipart>=0.0.6,<1
 ```
 
 ```bash
 git clone https://github.com/DaweiTian/microbial-colony-counter.git
 cd microbial-colony-counter
 pip install -r requirements.txt
-# 可选（YOLO 训练 / ONNX 推理）：
-# pip install -r requirements-ml.txt
 ```
-
-Web 后端见 `backend/requirements.txt`。
 
 ---
 
-## 🏗️ 项目结构
+## 项目结构
 
 ```text
 microbial-colony-counter/
 ├── backend/
 │   ├── core/
-│   │   ├── algorithm.py      # 核心计数算法（classic / labels / peaks）
-│   │   ├── blobcount.py      # 密菌落：距离场 NMS + 分水岭标签
-│   │   ├── smart.py          # 一键智能：估参 + 多策略选优
-│   │   ├── detector.py       # 检测器抽象（opencv / yolo-onnx）
-│   │   ├── calibrator.py     # 单盘 / 多盘参数学习
-│   │   ├── batch.py          # 批量套用学习到的参数
-│   │   ├── pointset.py       # 点集与标注
-│   │   └── evaluate.py       # 离线评估
-│   ├── yolo/                 # 伪标签导出 / 训练 / ONNX
-│   ├── eval/cases/           # 评估用例（图 + 真值 JSON）
-│   ├── static/index.html
-│   ├── main.py               # FastAPI（含 /api/v1/count_smart）
-│   └── test_*.py
-├── datasets/colony/          # YOLO 数据集约定与 README
-├── docs/compose/spec/        # 功能规格
-├── main.py                   # 桌面主程序（含「一键智能」）
-├── batch_workbench.py        # 批次学习工作台
-├── web_launcher.py
-├── requirements.txt
-├── requirements-ml.txt       # 可选：ultralytics / onnxruntime
+│   │   ├── algorithm.py       # 计数主流程（含大图内部缩放）
+│   │   ├── blobcount.py       # 标签 / 峰值 / 分水岭
+│   │   ├── smart.py           # 智能估参与多策略选优
+│   │   ├── detector.py        # opencv / yolo-onnx
+│   │   ├── calibrator.py      # 批次参数学习
+│   │   ├── batch.py           # 批量计数
+│   │   └── ...
+│   ├── image_security.py      # 上传校验、自动降采样、导出路径
+│   ├── main.py                # FastAPI 入口
+│   ├── api_batch.py           # 批次 HTTP API
+│   └── static/                # 前端构建产物（sidecar 打包用）
+├── frontend/                  # Vite + React + TS + Tailwind
+│   └── src/
+│       ├── features/count/    # 单图计数页
+│       ├── features/batch/    # 批次标定页
+│       └── components/        # 主题、标题栏、通用 UI
+├── desktop/                   # Tauri 2 桌面壳
+│   └── src-tauri/
+├── package_release.py         # 一键构建并收集安装包到 dist/installer/
+├── build_sidecar.py           # PyInstaller onedir 后端
 └── README.md
 ```
 
----
-
-## 📋 更新日志
-
-### v1.2.0
-
-- ⚡ **一键智能计数**：桌面/Web 入口；多策略选优并回填参数  
-- 💧 **密菌落分离**：`blobcount` 标签直计数 + 距离场 NMS；修复旧分水岭塌缩  
-- 🧪 **离线评估 CLI** 与用例格式  
-- 🤖 **YOLO 准备**：伪标签导出、训练/ONNX 骨架、`yolo-onnx` 推理与回退  
-- 🧩 `segment_mode` / `count_smart` API / 检测器注册表  
-
-### v1.1.2
-
-- ✨ **多参考盘联合标定**（1～5 块，建议 2～5）  
-- ✨ 主路径 **图 + N**，点选为可选增强  
-- ✨ 联合最小化各盘平均误差；输出每盘预测/真值/误差  
-- 🧩 新增 `calibrate_multi`；工作台改为参考盘列表  
-- 📖 README 详述「参考盘真值 → 参数学习」思路与 v1.1.1/v1.1.2 更新说明  
-
-### v1.1.1
-
-- ✨ 电脑端批次标定工作台（首版）  
-- ✨ 单参考盘三策略：部分点选+N / 全量点选 / 仅总数  
-- ✨ 批量计数、CSV、参数 JSON、应用到主窗口  
-- 🧩 `calibrator` / `batch` / `pointset` 模块  
-
-### v1.0.0
-
-- 首个正式版：Web/桌面算法对齐、分水岭、圆度、菌落详情、性能优化等  
+旧版 Tkinter 主程序（`main.py`）仍保留，日常请优先使用 Web / 桌面安装包。
 
 ---
 
-## 🤝 贡献
+## 更新日志
+
+### v0.2.0（发布）
+
+- 浅色 / 深色主题；标题栏版本徽章  
+- 单图页新布局：左栏 + 舞台、悬浮参数、底部智能计数  
+- 皿内圆形裁切（原分辨率 + 圆外掩膜）  
+- 大图自动降采样；舞台自适应不溢出  
+- 历史回放 / 重命名 / 删除 / 批量导出；导出「另存为」  
+- 批次图缩放与点选；点位随缩放变化  
+- 桌面：自绘标题栏、默认最大化、关窗清理 sidecar、安装前结束占用进程  
+- 统一打包脚本 `package_release.py`  
+
+### 历史版本
+
+- **v1.2.x 系列**：一键智能、密菌落分离、评估 CLI、YOLO 准备（旧版本号体系）  
+- **v1.1.2**：多参考盘联合标定  
+- **v1.1.1**：批次标定工作台  
+
+---
+
+## 贡献
 
 欢迎 Issue 与 Pull Request。
 
-## 📄 许可证
+## 许可证
 
 [MIT License](LICENSE)
 
-## 📞 联系方式
+## 联系方式
 
-- 维护者：Zhaohui Cai  
-- 邮箱：cai_zhaohui@163.com  
+- 维护者：Vincent Tian  
+- 邮箱：tianwenx@wo.cn  
 
 ---
 
-**享受使用微生物菌落计数器！** 🧫🔬
+**Enjoy counting!**
